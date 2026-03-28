@@ -1,0 +1,2246 @@
+#!/usr/bin/env python3
+"""vshypr-theme-manager — graphical interface for vsHypr Theme Manager."""
+
+__version__ = "1.0.0"
+
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gtk, Gdk, GLib, Pango, GdkPixbuf
+import cairo, os, re, subprocess, shutil, datetime, json as _json
+import threading, urllib.request
+
+# ── paths ──────────────────────────────────────────────────────────────────────
+
+# Runtime location of the GUI executable (used only for the app logo).
+_SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
+
+# All user data lives here — themes, templates, assets, backups, state.
+_USER_DATA_DIR = os.path.expanduser("~/.config/vshypr-theme-manager")
+
+_TC_PY      = os.path.join(_USER_DATA_DIR, "vshypr-theme-manager.py")
+_TC_ROFI    = os.path.join(_USER_DATA_DIR, "rofi-picker.sh")
+_TC_THEMES  = os.path.join(_USER_DATA_DIR, "themes")
+_TC_CURRENT = os.path.join(_USER_DATA_DIR, "current-theme.json")
+
+_APP_NAME  = "vsHypr Theme Manager"
+_APP_LOGO  = os.path.join(_SCRIPT_DIR, "vshypr-theme-manager.png")
+
+_CONF_DIR        = _USER_DATA_DIR
+_F_STATE         = os.path.join(_CONF_DIR, ".tcgui_state.json")
+_F_CONFIG        = os.path.join(_CONF_DIR, "gui-config.json")
+_DEFAULT_WP_DIR  = os.path.expanduser("~/Pictures/wallpapers")
+
+os.makedirs(_CONF_DIR, exist_ok=True)
+
+# ── persistent state ─────────────────────────────────────────────────────────
+
+def _state_get(key, default=None):
+    try:
+        return _json.loads(open(_F_STATE).read()).get(key, default)
+    except Exception:
+        return default
+
+def _state_set(key, value):
+    try:
+        data = _json.loads(open(_F_STATE).read())
+    except Exception:
+        data = {}
+    data[key] = value
+    with open(_F_STATE, "w") as f:
+        f.write(_json.dumps(data, indent=2))
+
+def _config_load():
+    try:
+        return _json.loads(open(_F_CONFIG).read())
+    except Exception:
+        return {}
+
+def _config_save(cfg):
+    os.makedirs(os.path.dirname(_F_CONFIG), exist_ok=True)
+    with open(_F_CONFIG, "w") as f:
+        _json.dump(cfg, f, indent=2)
+
+# ── palettes ────────────────────────────────────────────────────────────────────
+
+THEME_DARK = {
+    "bg":      "#1e1e2e",
+    "hdr":     "#181825",
+    "brd":     "#45475a",
+    "txt":     "#cdd6f4",
+    "dim":     "#bac2de",
+    "mid":     "#7f849c",
+    "acc":     "#cba6f7",
+    "acc_rgb": "203,166,247",
+    "save_fg": "#1e1e2e",
+    "green":   "#a6e3a1",
+    "yellow":  "#f9e2af",
+    "red":     "#f38ba8",
+}
+
+THEME_LIGHT = {
+    "bg":      "#eff1f5",
+    "hdr":     "#e6e9ef",
+    "brd":     "#acb0be",
+    "txt":     "#4c4f69",
+    "dim":     "#6c6f85",
+    "mid":     "#8c8fa1",
+    "acc":     "#8839ef",
+    "acc_rgb": "136,57,239",
+    "save_fg": "#eff1f5",
+    "green":   "#40a02b",
+    "yellow":  "#df8e1d",
+    "red":     "#d20f39",
+}
+
+# ── CSS ────────────────────────────────────────────────────────────────────────
+
+def _build_css(t):
+    return f"""
+* {{ font-family: "JetBrainsMono Nerd Font", monospace; }}
+
+/* ── window and viewport ────────────────────────────────────────────────────
+   GtkScrolledWindow creates a GtkViewport internally; without styling it
+   it shows the white background of the system theme.                       */
+window,         window:backdrop,
+viewport,       viewport:backdrop,
+scrolledwindow, scrolledwindow:backdrop {{
+    background-color: {t['bg']};
+    background-image: none;
+}}
+
+/* ── header ────────────────────────────────────────────────────────────── */
+box.header-bar, box.header-bar:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    border-bottom: 1px solid {t['brd']};
+    padding: 12px 20px;
+    box-shadow: none;
+}}
+
+/* ── notebook ──────────────────────────────────────────────────────────── */
+notebook, notebook:backdrop {{
+    background-color: {t['bg']};
+    background-image: none;
+}}
+notebook > header.left,
+notebook > header.left:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    border-right: 1px solid {t['brd']};
+    padding: 8px 0;
+    box-shadow: none;
+}}
+notebook > header > tabs > tab,
+notebook > header > tabs > tab:backdrop {{
+    background-color: transparent;
+    background-image: none;
+    color: {t['dim']};
+    font-size: 13px;
+    padding: 10px 20px 10px 16px;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 0;
+    min-width: 130px;
+    box-shadow: none;
+}}
+notebook > header > tabs > tab:checked,
+notebook > header > tabs > tab:checked:backdrop {{
+    background-color: {t['bg']};
+    background-image: none;
+    color: {t['acc']};
+    border-left-color: {t['acc']};
+}}
+notebook > header > tabs > tab:hover:not(:checked) {{
+    color: {t['txt']};
+    background-color: rgba({t['acc_rgb']}, 0.07);
+    background-image: none;
+}}
+
+/* ── labels ────────────────────────────────────────────────────────────── */
+.section-title {{
+    color: {t['acc']};
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    margin-top: 18px;
+    margin-bottom: 2px;
+}}
+.field-label, .field-label:backdrop {{ color: {t['dim']}; font-size: 13px; }}
+.hint-label,  .hint-label:backdrop  {{ color: {t['mid']}; font-size: 12px; font-style: italic; }}
+
+/* ── entry ─────────────────────────────────────────────────────────────── */
+entry, entry:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    color: {t['txt']};
+    border: 1px solid {t['brd']};
+    border-radius: 5px;
+    padding: 5px 10px;
+    caret-color: {t['acc']};
+    box-shadow: none;
+}}
+entry:focus {{ border-color: {t['acc']}; }}
+
+/* ── buttons ───────────────────────────────────────────────────────────── */
+button, button:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    color: {t['txt']};
+    border: 1px solid {t['brd']};
+    border-radius: 5px;
+    padding: 5px 14px;
+    box-shadow: none;
+}}
+button:hover {{ border-color: {t['acc']}; color: {t['acc']}; }}
+
+button.save-btn, button.save-btn:backdrop {{
+    background-color: {t['acc']};
+    background-image: none;
+    color: {t['save_fg']};
+    border: none;
+    border-radius: 6px;
+    padding: 6px 22px;
+    font-weight: bold;
+    font-size: 14px;
+}}
+button.save-btn:hover {{ background-color: rgba({t['acc_rgb']}, 0.8); }}
+
+button.open-btn, button.open-btn:backdrop {{
+    background-color: transparent;
+    background-image: none;
+    color: {t['dim']};
+    border: 1px solid {t['brd']};
+}}
+button.open-btn:hover {{ color: {t['acc']}; border-color: {t['acc']}; }}
+
+button.big-btn, button.big-btn:backdrop {{
+    background-color: {t['acc']};
+    background-image: none;
+    color: {t['save_fg']};
+    border: none;
+    border-radius: 10px;
+    padding: 18px 48px;
+    font-weight: bold;
+    font-size: 16px;
+}}
+button.big-btn:hover {{ background-color: rgba({t['acc_rgb']}, 0.8); }}
+
+/* ── cards — "box." prefix to override system theme ─────── */
+box.plugin-card, box.plugin-card:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    border: 1px solid {t['brd']};
+    border-radius: 6px;
+}}
+box.plugin-card-active, box.plugin-card-active:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    border: 1px solid {t['acc']};
+    border-radius: 6px;
+}}
+
+/* ── checkbutton ───────────────────────────────────────────────────────── */
+checkbutton label, checkbutton label:backdrop {{
+    color: {t['txt']};
+    font-size: 13px;
+}}
+checkbutton check, checkbutton check:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    border: 1px solid {t['brd']};
+    border-radius: 3px;
+    min-width: 14px;
+    min-height: 14px;
+}}
+checkbutton:checked check, checkbutton:checked check:backdrop {{
+    background-color: {t['acc']};
+    background-image: none;
+    border-color: {t['acc']};
+}}
+
+/* ── misc ──────────────────────────────────────────────────────────────── */
+separator, separator:backdrop {{
+    background-color: {t['brd']};
+    background-image: none;
+    min-height: 1px;
+    margin: 4px 0;
+}}
+
+box.status-bar, box.status-bar:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    border-top: 1px solid {t['brd']};
+    padding: 7px 20px;
+}}
+
+box.preview-box, box.preview-box:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    border: 1px solid {t['brd']};
+    border-radius: 6px;
+}}
+
+eventbox.theme-chip, eventbox.theme-chip:backdrop {{
+    background-color: {t['hdr']};
+    background-image: none;
+    border: 1px solid {t['brd']};
+    border-radius: 4px;
+    padding: 3px 8px;
+    margin: 2px;
+}}
+eventbox.theme-chip-active, eventbox.theme-chip-active:backdrop {{
+    background-color: rgba({t['acc_rgb']}, 0.12);
+    background-image: none;
+    border: 1px solid {t['acc']};
+    border-radius: 4px;
+    padding: 3px 8px;
+    margin: 2px;
+}}
+"""
+
+# ── UI helpers ──────────────────────────────────────────────────────────────────
+
+def _scrolled(child):
+    sw = Gtk.ScrolledWindow()
+    sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    sw.add(child)
+    return sw
+
+def _card_box(active=False):
+    """Box with guaranteed CSS background in GTK3.
+
+    Gtk.Box has no GDK window of its own and does not render background-color
+    automatically. By connecting 'draw' and calling Gtk.render_background /
+    Gtk.render_frame we force painting before children are drawn.
+    """
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    box.get_style_context().add_class(
+        "plugin-card-active" if active else "plugin-card"
+    )
+
+    def _draw(widget, cr):
+        ctx = widget.get_style_context()
+        w   = widget.get_allocated_width()
+        h   = widget.get_allocated_height()
+        Gtk.render_background(ctx, cr, 0, 0, w, h)
+        Gtk.render_frame(ctx, cr, 0, 0, w, h)
+        return False   # False = keep propagating to draw children
+
+    box.connect("draw", _draw)
+    return box
+
+def _open_url(url):
+    subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def _lbl(text, cls="field-label"):
+    l = Gtk.Label(label=text)
+    l.set_xalign(0)
+    l.get_style_context().add_class(cls)
+    return l
+
+def _section(text):
+    b = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    b.set_margin_top(16)
+    lbl = _lbl(text, "section-title")
+    b.pack_start(lbl, False, False, 0)
+    sep = Gtk.Separator()
+    b.pack_start(sep, False, False, 4)
+    return b
+
+def _hint(text):
+    l = _lbl(text, "hint-label")
+    l.set_margin_start(4)
+    return l
+
+def _field(label_text, widget):
+    b = Gtk.Box(spacing=8)
+    l = _lbl(label_text)
+    l.set_size_request(200, -1)
+    b.pack_start(l, False, False, 0)
+    b.pack_start(widget, True, True, 0)
+    return b
+
+def _hex_to_rgb(hex_color):
+    h = hex_color.lstrip("#")
+    return tuple(int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+
+# ── main application ───────────────────────────────────────────────────────────
+
+class ThemeChangerApp(Gtk.Window):
+
+    def __init__(self):
+        super().__init__(title=_APP_NAME)
+        self.set_default_size(980, 700)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.connect("delete-event", Gtk.main_quit)
+        if os.path.isfile(_APP_LOGO):
+            self.set_icon_from_file(_APP_LOGO)
+
+        self._dark  = _state_get("dark", False)
+        self._theme = THEME_DARK if self._dark else THEME_LIGHT
+        self._cfg   = _config_load()
+        self._status_lbl      = None
+        self._status_timeout  = None
+        self._nb              = None
+        self._nb_hub_idx      = 4
+
+        self._css_provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), self._css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_USER
+        )
+        self._apply_css()
+        self._build_ui()
+        self.show_all()
+        # Force a redraw cycle after first presentation so GTK applies
+        # background CSS correctly across all widgets.
+        GLib.idle_add(self.queue_draw)
+
+    # ── visual theme ────────────────────────────────────────────────────────────
+
+    def _apply_css(self):
+        self._css_provider.load_from_data(_build_css(self._theme).encode())
+
+    def _toggle_theme(self, *_):
+        self._dark  = not self._dark
+        self._theme = THEME_DARK if self._dark else THEME_LIGHT
+        _state_set("dark", self._dark)
+        self._apply_css()
+        child = self.get_child()
+        if child:
+            self.remove(child)
+        self._build_ui()
+        self.show_all()
+
+    # ── UI construction ─────────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        self._status_lbl = None
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        inner.pack_start(self._make_header(),    False, False, 0)
+        inner.pack_start(self._make_notebook(),  True,  True,  0)
+        inner.pack_start(self._make_statusbar(), False, False, 0)
+        self.add(inner)
+
+    def _make_header(self):
+        t   = self._theme
+        hdr = Gtk.Box(spacing=8)
+        hdr.get_style_context().add_class("header-bar")
+        hdr.set_margin_start(16)
+        hdr.set_margin_end(16)
+
+        icon_img = None
+        if os.path.isfile(_APP_LOGO):
+            try:
+                pix = GdkPixbuf.Pixbuf.new_from_file_at_size(_APP_LOGO, 36, 36)
+                icon_img = Gtk.Image.new_from_pixbuf(pix)
+            except Exception:
+                pass
+        if icon_img is None:
+            icon_img = Gtk.Label()
+            icon_img.set_markup(f'<span font_desc="JetBrainsMono Nerd Font 22" foreground="{t["acc"]}">󰔯</span>')
+        title = Gtk.Label()
+        title.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="15000">{_APP_NAME}</span>'
+        )
+        hdr.pack_start(icon_img, False, False, 0)
+        hdr.pack_start(title,    False, False, 6)
+        hdr.pack_start(Gtk.Box(), True, True, 0)
+
+        tog_icon = "󰖨" if self._dark else "󰖔"
+        tog = Gtk.Button()
+        tog_lbl = Gtk.Label()
+        tog_lbl.set_markup(
+            f'<span font_desc="JetBrainsMono Nerd Font 14">{tog_icon}</span>'
+        )
+        tog.add(tog_lbl)
+        tog.get_style_context().add_class("open-btn")
+        tog.connect("clicked", self._toggle_theme)
+        hdr.pack_start(tog, False, False, 4)
+        return hdr
+
+    def _make_notebook(self):
+        nb = Gtk.Notebook()
+        nb.set_tab_pos(Gtk.PositionType.LEFT)
+        nb.set_show_border(False)
+        pages = [
+            ("󰊠  Setup",       self._page_setup()),
+            ("󰒓  Config",      self._page_config()),
+            ("󰔯  Set Theme",   self._page_theme()),
+            ("󰉏  Wallpaper",   self._page_wallpaper()),
+            ("󰗓  Assets",      self._page_assets()),
+            ("󰆦  vsHub",       self._page_hub()),
+            ("󰘳  Commands",    self._page_commands()),
+            ("󰋼  About",       self._page_about()),
+        ]
+        for label, page in pages:
+            lbl = Gtk.Label()
+            lbl.set_markup(
+                f'<span font_desc="JetBrainsMono Nerd Font 11">{label}</span>'
+            )
+            lbl.set_xalign(0)
+            nb.append_page(page, lbl)
+        self._nb = nb
+        self._nb_hub_idx = next(i for i, (lbl, _) in enumerate(pages) if "vsHub" in lbl)
+        return nb
+
+    def _make_statusbar(self):
+        bar = Gtk.Box(spacing=8)
+        bar.get_style_context().add_class("status-bar")
+        self._status_lbl = Gtk.Label(label="Ready")
+        self._status_lbl.set_xalign(0)
+        bar.pack_start(self._status_lbl, True, True, 0)
+        return bar
+
+    def _set_status(self, msg, timeout=4):
+        if self._status_lbl:
+            self._status_lbl.set_text(msg)
+            if self._status_timeout:
+                GLib.source_remove(self._status_timeout)
+                self._status_timeout = None
+            if timeout:
+                self._status_timeout = GLib.timeout_add_seconds(
+                    timeout,
+                    lambda: self._status_lbl.set_text("Ready") if self._status_lbl else False
+                )
+
+    # ── utilities ─────────────────────────────────────────────────────────────
+
+    def _run_in_terminal(self, cmds, on_done=None):
+        script = (
+            " && ".join(cmds)
+            + "; echo; echo 'Done — press Enter to close'; read"
+        )
+        try:
+            proc = subprocess.Popen(["kitty", "-e", "bash", "-c", script])
+            if on_done:
+                def _wait():
+                    proc.wait()
+                    GLib.idle_add(on_done)
+                threading.Thread(target=_wait, daemon=True).start()
+        except Exception:
+            pass
+
+    def _reload_hub_tab(self, switch_to_hub=False):
+        nb = self._nb
+        if nb is None:
+            return
+        idx = self._nb_hub_idx
+        was_current = nb.get_current_page() == idx
+        nb.remove_page(idx)
+        new_page = self._page_hub(auto_fetch=False)
+        lbl = Gtk.Label()
+        lbl.set_markup(
+            '<span font_desc="JetBrainsMono Nerd Font 11">󰆦  vsHub</span>'
+        )
+        lbl.set_xalign(0)
+        nb.insert_page(new_page, lbl, idx)
+        new_page.show_all()
+        if was_current or switch_to_hub:
+            nb.set_current_page(idx)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE:Setup
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _page_setup(self):
+        t    = self._theme
+        _aur = next((h for h in ("yay", "paru") if shutil.which(h)), None)
+
+        # ── tool list ─────────────────────────────────────────────────────────
+        DEPS = [
+            {
+                "name": "jq",
+                "desc": "JSON processor — required by vshypr-theme-manager.py",
+                "exe":  "jq",         "pkg": "jq",          "required": True,
+            },
+            {
+                "name": "rofi",
+                "desc": "Visual theme picker (rofi-picker.sh)",
+                "exe":  "rofi",       "pkg": "rofi-wayland", "required": True,
+            },
+            {
+                "name": "matugen",
+                "desc": "Generates color palettes for dynamic themes from a wallpaper",
+                "exe":  "matugen",    "pkg": "matugen-bin",  "required": False,
+            },
+            {
+                "name": "awww",
+                "desc": "Wayland wallpaper daemon (awww-daemon + awww img)",
+                "exe":  "awww",       "pkg": "awww",         "required": False,
+            },
+            {
+                "name": "swaync",
+                "desc": "SwayNC notification center (swaync-client reload)",
+                "exe":  "swaync",     "pkg": "swaync",       "required": False,
+            },
+            {
+                "name": "gsettings",
+                "desc": "Sets GTK3 theme name via GSettings",
+                "exe":  "gsettings",  "pkg": "glib2",        "required": False,
+            },
+            {
+                "name": "qt5ct",
+                "desc": "Qt5 style configuration tool",
+                "exe":  "qt5ct",      "pkg": "qt5ct",        "required": False,
+            },
+            {
+                "name": "qt6ct",
+                "desc": "Qt6 style configuration tool",
+                "exe":  "qt6ct",      "pkg": "qt6ct",        "required": False,
+            },
+            {
+                "name": "kvantum",
+                "desc": "Qt style engine with SVG support (Kvantum Manager)",
+                "exe":  "kvantummanager", "pkg": "kvantum",  "required": False,
+            },
+        ]
+
+        APPS = [
+            {
+                "name": "kitty",
+                "desc": "Terminal emulator — theme.conf fully generated",
+                "exe":  "kitty",      "pkg": "kitty",
+            },
+            {
+                "name": "waybar",
+                "desc": "Wayland status bar — CSS injection with markers",
+                "exe":  "waybar",     "pkg": "waybar",
+            },
+            {
+                "name": "hyprlock",
+                "desc": "Screen locker for Hyprland",
+                "exe":  "hyprlock",   "pkg": "hyprlock",
+            },
+            {
+                "name": "hyprswitch",
+                "desc": "Window switcher for Hyprland — CSS injection",
+                "exe":  "hyprswitch", "pkg": "hyprswitch",
+            },
+            {
+                "name": "eww",
+                "desc": "Wayland widget system — generated from .tpl template",
+                "exe":  "eww",        "pkg": "eww",
+            },
+            {
+                "name": "wlogout",
+                "desc": "Logout screen — template + colored SVGs",
+                "exe":  "wlogout",    "pkg": "wlogout",
+            },
+            {
+                "name": "vsfetch",
+                "desc": "System info — updates config.json directly",
+                "exe":  "vsfetch",    "pkg": "vsfetch",
+            },
+            {
+                "name": "nautilus",
+                "desc": "GTK4 file manager — restarted automatically on theme apply",
+                "exe":  "nautilus",   "pkg": "nautilus",
+            },
+            {
+                "name": "dolphin",
+                "desc": "Qt file manager — restarted automatically on theme apply",
+                "exe":  "dolphin",    "pkg": "dolphin",
+            },
+        ]
+
+        _checks = {}   # pkg -> Gtk.CheckButton
+
+        # ── container ────────────────────────────────────────────────────────
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_start(24); outer.set_margin_end(24)
+        outer.set_margin_top(20);   outer.set_margin_bottom(20)
+
+        hdr_lbl = Gtk.Label()
+        hdr_lbl.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="16000">Setup</span>'
+        )
+        hdr_lbl.set_halign(Gtk.Align.START)
+        outer.pack_start(hdr_lbl, False, False, 0)
+
+        sub_lbl = Gtk.Label()
+        sub_lbl.set_markup(
+            f'<span foreground="{t["dim"]}" size="12000">'
+            f'Dependencies and supported applications for vsHypr Theme Manager</span>'
+        )
+        sub_lbl.set_halign(Gtk.Align.START)
+        sub_lbl.set_margin_bottom(12)
+        outer.pack_start(sub_lbl, False, False, 0)
+
+        # ── row builder ──────────────────────────────────────────────────────
+        def _make_row(tool):
+            installed = bool(shutil.which(tool["exe"]))
+
+            card = _card_box(active=installed)
+            card.set_margin_bottom(6)
+            row = Gtk.Box(spacing=10)
+            row.set_margin_start(12); row.set_margin_end(12)
+            row.set_margin_top(8);    row.set_margin_bottom(8)
+
+            cb = Gtk.CheckButton()
+            cb.set_sensitive(not installed)
+            if installed:
+                cb.set_tooltip_text("Already installed")
+            _checks[tool["pkg"]] = cb
+            row.pack_start(cb, False, False, 0)
+
+            status_lbl = Gtk.Label()
+            if installed:
+                status_lbl.set_markup(f'<span foreground="{t["green"]}">●</span>')
+            else:
+                status_lbl.set_markup(f'<span foreground="{t["mid"]}">○</span>')
+            row.pack_start(status_lbl, False, False, 0)
+
+            info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            name_markup = (
+                f'<span foreground="{t["txt"]}" weight="bold" size="13000">'
+                f'{tool["name"]}</span>'
+            )
+            if tool.get("required"):
+                name_markup += (
+                    f'  <span foreground="{t["yellow"]}" size="9000">REQUIRED</span>'
+                )
+            n = Gtk.Label(); n.set_markup(name_markup); n.set_halign(Gtk.Align.START)
+            d = Gtk.Label()
+            d.set_markup(
+                f'<span foreground="{t["dim"]}" size="11000">{tool["desc"]}</span>'
+            )
+            d.set_halign(Gtk.Align.START)
+            info.pack_start(n, False, False, 0)
+            info.pack_start(d, False, False, 0)
+            row.pack_start(info, True, True, 0)
+
+            badge = Gtk.Label()
+            if installed:
+                badge.set_markup(
+                    f'<span foreground="{t["green"]}" size="11000">installed</span>'
+                )
+            else:
+                badge.set_markup(
+                    f'<span foreground="{t["mid"]}" size="10000">{tool["pkg"]}</span>'
+                )
+            row.pack_start(badge, False, False, 0)
+            card.pack_start(row, False, False, 0)
+            return card
+
+        outer.pack_start(_section("SYSTEM DEPENDENCIES"), False, False, 0)
+        for tool in DEPS:
+            outer.pack_start(_make_row(tool), False, False, 0)
+
+        outer.pack_start(_section("SUPPORTED APPS"), False, False, 0)
+        for tool in APPS:
+            outer.pack_start(_make_row(tool), False, False, 0)
+
+        # ── action buttons ─────────────────────────────────────────────────────
+        btn_row = Gtk.Box(spacing=10)
+        btn_row.set_margin_top(20)
+
+        sel_all = Gtk.Button(label="Select all")
+        sel_all.get_style_context().add_class("open-btn")
+        sel_all.connect("clicked", lambda *_: [
+            cb.set_active(True) for cb in _checks.values() if cb.get_sensitive()
+        ])
+        btn_row.pack_start(sel_all, False, False, 0)
+
+        clear = Gtk.Button(label="Clear selection")
+        clear.get_style_context().add_class("open-btn")
+        clear.connect("clicked", lambda *_: [
+            cb.set_active(False) for cb in _checks.values()
+        ])
+        btn_row.pack_start(clear, False, False, 0)
+
+        btn_row.pack_start(Gtk.Box(), True, True, 0)  # spacer
+
+        install_btn = Gtk.Button()
+        install_btn.get_style_context().add_class("save-btn")
+        install_btn.set_sensitive(_aur is not None)
+        install_btn.set_tooltip_text(
+            f"Install with {_aur}" if _aur
+            else "yay or paru not found"
+        )
+        install_lbl = Gtk.Label()
+        install_lbl.set_markup(
+            f'<span font_desc="JetBrainsMono Nerd Font 13">'
+            f'  Install selected ({_aur or "AUR"})</span>'
+        )
+        install_btn.add(install_lbl)
+
+        def _install(*_):
+            pkgs = [pkg for pkg, cb in _checks.items() if cb.get_active()]
+            if not pkgs:
+                self._set_status("Select at least one tool to install")
+                return
+            self._run_in_terminal(
+                [f"{_aur} -S {' '.join(pkgs)}"],
+                on_done=lambda: self._set_status("Installation complete — restart the app to refresh status")
+            )
+
+        install_btn.connect("clicked", _install)
+        btn_row.pack_start(install_btn, False, False, 0)
+        outer.pack_start(btn_row, False, False, 0)
+
+        return _scrolled(outer)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE:Config
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _page_config(self):
+        t = self._theme
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_start(24); outer.set_margin_end(24)
+        outer.set_margin_top(20);   outer.set_margin_bottom(20)
+
+        hdr_lbl = Gtk.Label()
+        hdr_lbl.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="16000">Configuration</span>'
+        )
+        hdr_lbl.set_halign(Gtk.Align.START)
+        outer.pack_start(hdr_lbl, False, False, 0)
+
+        sub = Gtk.Label()
+        sub.set_markup(
+            f'<span foreground="{t["dim"]}" size="12000">'
+            f'Global settings for vshypr-theme-manager</span>'
+        )
+        sub.set_halign(Gtk.Align.START)
+        sub.set_margin_bottom(12)
+        outer.pack_start(sub, False, False, 0)
+
+        # ── helper: row with entry + browse button ────────────────────────────
+        def _entry_row(default, browse_title, is_dir=True):
+            row   = Gtk.Box(spacing=8)
+            row.set_margin_top(6)
+            entry = Gtk.Entry()
+            entry.set_text(default)
+            entry.set_hexpand(True)
+            btn   = Gtk.Button(label=" Browse")
+            btn.get_style_context().add_class("open-btn")
+
+            def _browse(*_):
+                action = (Gtk.FileChooserAction.SELECT_FOLDER if is_dir
+                          else Gtk.FileChooserAction.OPEN)
+                dlg = Gtk.FileChooserDialog(title=browse_title, parent=self, action=action)
+                dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
+                dlg.add_button("Select", Gtk.ResponseType.OK)
+                cur = os.path.expanduser(entry.get_text().strip())
+                if is_dir:
+                    # set_current_folder navigates to the directory in SELECT_FOLDER;
+                    # set_filename does NOT work correctly for folders in GTK3.
+                    folder = cur if os.path.isdir(cur) else os.path.expanduser("~")
+                    dlg.set_current_folder(folder)
+                else:
+                    if os.path.isfile(cur):
+                        dlg.set_filename(cur)
+                    elif os.path.isdir(os.path.dirname(cur)):
+                        dlg.set_current_folder(os.path.dirname(cur))
+                if dlg.run() == Gtk.ResponseType.OK:
+                    entry.set_text(dlg.get_filename())
+                dlg.destroy()
+
+            btn.connect("clicked", _browse)
+            row.pack_start(entry, True, True, 0)
+            row.pack_start(btn,   False, False, 0)
+            return row, entry
+
+        # ── Wallpapers folder ─────────────────────────────────────────────────
+        outer.pack_start(_section("WALLPAPERS FOLDER"), False, False, 0)
+        outer.pack_start(
+            _hint("Directory used by rofi-picker.sh to show wallpapers (Alt+Enter on dynamic themes)"),
+            False, False, 0
+        )
+        wp_row, wp_entry = _entry_row(
+            self._cfg.get("wallpapers_dir", _DEFAULT_WP_DIR),
+            "Select wallpapers folder", is_dir=True
+        )
+        outer.pack_start(wp_row, False, False, 0)
+
+        # ── theme-changer directory ───────────────────────────────────────────
+        outer.pack_start(_section("THEME-CHANGER DIRECTORY"), False, False, 0)
+        outer.pack_start(
+            _hint("User data folder — themes/, templates/, assets/, backups/, rofi-picker.sh  •  default: ~/.config/vshypr-theme-manager"),
+            False, False, 0
+        )
+        tc_row, tc_entry = _entry_row(
+            self._cfg.get("theme_changer_dir", _USER_DATA_DIR),
+            "Select theme-changer directory", is_dir=True
+        )
+        outer.pack_start(tc_row, False, False, 0)
+
+        # ── Theme picker rasi ─────────────────────────────────────────────────
+        outer.pack_start(_section("RASI — THEME PICKER"), False, False, 0)
+        outer.pack_start(
+            _hint(".rasi file used by rofi for the main theme picker (-theme)"),
+            False, False, 0
+        )
+        rasi_tp_row, rasi_tp_entry = _entry_row(
+            self._cfg.get("rasi_theme_picker", "~/.config/rofi/theme-picker.rasi"),
+            "Select .rasi file", is_dir=False
+        )
+        outer.pack_start(rasi_tp_row, False, False, 0)
+
+        # ── Wallpaper picker rasi ─────────────────────────────────────────────
+        outer.pack_start(_section("RASI — WALLPAPER PICKER"), False, False, 0)
+        outer.pack_start(
+            _hint(".rasi file used by rofi for the wallpaper grid in dynamic themes (-theme)"),
+            False, False, 0
+        )
+        rasi_wp_row, rasi_wp_entry = _entry_row(
+            self._cfg.get("rasi_wallpaper_picker", "~/.config/rofi/wallpaper-picker.rasi"),
+            "Select .rasi file", is_dir=False
+        )
+        outer.pack_start(rasi_wp_row, False, False, 0)
+
+        # ── rofi-picker.sh patch ──────────────────────────────────────────────
+        # Defined before _save so _save can call it.
+        def _do_patch_rofi():
+            """Applies self._cfg values to rofi-picker.sh. Returns error msg or None."""
+            rofi_sh = os.path.join(
+                self._cfg.get("theme_changer_dir", _USER_DATA_DIR), "rofi-picker.sh"
+            )
+            if not os.path.isfile(rofi_sh):
+                return f"Not found: {rofi_sh}"
+            with open(rofi_sh) as f:
+                lines = f.readlines()
+
+            new_wp_dir  = self._cfg.get("wallpapers_dir", _DEFAULT_WP_DIR)
+            new_rasi_tp = self._cfg.get("rasi_theme_picker", "~/.config/rofi/theme-picker.rasi")
+            new_rasi_wp = self._cfg.get("rasi_wallpaper_picker", "~/.config/rofi/wallpaper-picker.rasi")
+
+            for i, line in enumerate(lines):
+                # 1. Wallpapers folder — line with WALLPAPERS and find
+                if 'WALLPAPERS' in line and 'find' in line:
+                    lines[i] = re.sub(
+                        r'(find\s+)"[^"]*"',
+                        lambda m: m.group(1) + f'"{new_wp_dir}"',
+                        line
+                    )
+                # 2. Theme picker rasi — -theme line followed by > /tmp/...
+                #    The next non-empty line starts with '>'
+                elif '-theme' in line:
+                    next_nonempty = next(
+                        (lines[j].lstrip() for j in range(i + 1, min(i + 3, len(lines)))
+                         if lines[j].strip()),
+                        ""
+                    )
+                    if next_nonempty.startswith('>'):
+                        lines[i] = re.sub(
+                            r'(-theme\s+)\S+',
+                            lambda m: m.group(1) + new_rasi_tp,
+                            line
+                        )
+                    # 3. Wallpaper picker rasi — -theme line ending in ')'
+                    #    (closing of command substitution WP_IDX=$(...))
+                    elif line.rstrip().endswith(')'):
+                        lines[i] = re.sub(
+                            r'(-theme\s+)[^\s)]+',
+                            lambda m: m.group(1) + new_rasi_wp,
+                            line
+                        )
+
+            with open(rofi_sh, "w") as f:
+                f.writelines(lines)
+            return None  # sin error
+
+        # ── Save ──────────────────────────────────────────────────────────────
+        save_row = Gtk.Box()
+        save_row.set_margin_top(24)
+
+        save_btn = Gtk.Button(label="Save and apply to rofi-picker.sh")
+        save_btn.get_style_context().add_class("save-btn")
+
+        def _save(*_):
+            self._cfg["wallpapers_dir"]        = wp_entry.get_text().strip()
+            self._cfg["theme_changer_dir"]     = tc_entry.get_text().strip()
+            self._cfg["rasi_theme_picker"]     = rasi_tp_entry.get_text().strip()
+            self._cfg["rasi_wallpaper_picker"] = rasi_wp_entry.get_text().strip()
+            try:
+                _config_save(self._cfg)
+            except Exception as e:
+                self._set_status(f"Save error: {e}")
+                return
+            try:
+                err = _do_patch_rofi()
+                if err:
+                    self._set_status(f"Config saved — {err}")
+                else:
+                    self._set_status("Config saved and applied to rofi-picker.sh")
+            except Exception as e:
+                self._set_status(f"Config saved, patch error: {e}")
+
+        save_btn.connect("clicked", _save)
+        save_row.pack_start(Gtk.Box(), True, True, 0)
+        save_row.pack_start(save_btn, False, False, 0)
+        outer.pack_start(save_row, False, False, 0)
+
+        # ── Manual apply (without saving config) ─────────────────────────────
+        outer.pack_start(_section("APPLY TO ROFI-PICKER.SH"), False, False, 0)
+        outer.pack_start(
+            _hint("Re-applies current values to rofi-picker.sh without saving again"),
+            False, False, 0
+        )
+
+        patch_btn = Gtk.Button(label="Re-apply now")
+        patch_btn.get_style_context().add_class("open-btn")
+        patch_btn.set_margin_top(8)
+
+        def _patch_rofi(*_):
+            try:
+                err = _do_patch_rofi()
+                self._set_status(err if err else "rofi-picker.sh updated")
+            except Exception as e:
+                self._set_status(f"Error: {e}")
+
+        patch_btn.connect("clicked", _patch_rofi)
+        outer.pack_start(patch_btn, False, False, 0)
+
+        return _scrolled(outer)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE:Set Theme
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _page_theme(self):
+        t = self._theme
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_start(24); outer.set_margin_end(24)
+        outer.set_margin_top(20);   outer.set_margin_bottom(20)
+
+        hdr_lbl = Gtk.Label()
+        hdr_lbl.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="16000">Set Theme</span>'
+        )
+        hdr_lbl.set_halign(Gtk.Align.START)
+        outer.pack_start(hdr_lbl, False, False, 0)
+
+        sub = Gtk.Label()
+        sub.set_markup(
+            f'<span foreground="{t["dim"]}" size="12000">'
+            f'Apply themes directly · color palette · dynamic themes</span>'
+        )
+        sub.set_halign(Gtk.Align.START)
+        sub.set_margin_bottom(16)
+        outer.pack_start(sub, False, False, 0)
+
+        # ── Active theme (refreshable) ────────────────────────────────────────
+        outer.pack_start(_section("ACTIVE THEME"), False, False, 0)
+
+        def _read_current():
+            try:
+                s = _json.loads(open(_TC_CURRENT).read())
+                return s.get("theme") or "—", s.get("wallpaper") or "—"
+            except Exception:
+                return "—", "—"
+
+        cur_name, cur_wp = _read_current()
+
+        info_card = _card_box(active=False)
+        info_card.set_margin_top(6)
+        info_inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        info_inner.set_margin_start(14); info_inner.set_margin_end(14)
+        info_inner.set_margin_top(10);   info_inner.set_margin_bottom(10)
+
+        theme_lbl = Gtk.Label()
+        theme_lbl.set_halign(Gtk.Align.START)
+        wp_lbl = Gtk.Label()
+        wp_lbl.set_halign(Gtk.Align.START)
+        wp_lbl.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+
+        def _refresh_active():
+            cn, cw = _read_current()
+            theme_lbl.set_markup(
+                f'<span foreground="{t["dim"]}" size="11000">Active theme  </span>'
+                f'<span foreground="{t["acc"]}" weight="bold" size="14000">{cn}</span>'
+            )
+            wp_lbl.set_markup(
+                f'<span foreground="{t["dim"]}" size="11000">Wallpaper  </span>'
+                f'<span foreground="{t["txt"]}" size="12000">{cw}</span>'
+            )
+
+        _refresh_active()
+        info_inner.pack_start(theme_lbl, False, False, 0)
+        info_inner.pack_start(wp_lbl,    False, False, 0)
+        info_card.pack_start(info_inner, False, False, 0)
+        outer.pack_start(info_card, False, False, 0)
+
+        # ── Rofi button ───────────────────────────────────────────────────────
+        outer.pack_start(_section("ROFI PICKER"), False, False, 0)
+        rofi_row = Gtk.Box(spacing=8)
+        rofi_row.set_margin_top(6)
+        rofi_btn = Gtk.Button(label="  Open theme picker")
+        rofi_btn.get_style_context().add_class("open-btn")
+
+        def _open_rofi(*_):
+            rofi_sh = os.path.join(self._cfg.get("theme_changer_dir", _USER_DATA_DIR), "rofi-picker.sh")
+            if not os.path.isfile(rofi_sh):
+                self._set_status(f"Not found: {rofi_sh}"); return
+            subprocess.Popen(["bash", rofi_sh], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._set_status("Theme picker opened")
+
+        rofi_btn.connect("clicked", _open_rofi)
+        rofi_row.pack_start(rofi_btn, False, False, 0)
+        outer.pack_start(rofi_row, False, False, 0)
+
+        # ── card helpers ──────────────────────────────────────────────────────
+        _SWATCH_KEYS = ["bg", "accent", "red", "green", "teal", "mauve", "fg"]
+        _THUMB_W, _THUMB_H = 160, 90
+
+        def _make_swatch_row(colors: dict) -> Gtk.Box:
+            row = Gtk.Box(spacing=3)
+            row.set_halign(Gtk.Align.CENTER)
+            for key in _SWATCH_KEYS:
+                hex_col = colors.get(key)
+                if not hex_col:
+                    continue
+                da = Gtk.DrawingArea()
+                da.set_size_request(14, 14)
+                try:
+                    r, g, b = _hex_to_rgb(hex_col)
+                except Exception:
+                    continue
+                def _draw_swatch(widget, cr, _r=r, _g=g, _b=b):
+                    w = widget.get_allocated_width()
+                    h = widget.get_allocated_height()
+                    cr.set_source_rgb(_r, _g, _b)
+                    cr.arc(w/2, h/2, min(w, h)/2, 0, 6.2832)
+                    cr.fill()
+                da.connect("draw", _draw_swatch)
+                row.pack_start(da, False, False, 0)
+            return row
+
+        def _make_thumb(theme_dir: str) -> Gtk.Widget:
+            for name in ("thumb.jpg", "thumb.png"):
+                p = os.path.join(theme_dir, name)
+                if os.path.isfile(p):
+                    try:
+                        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(p, _THUMB_W, _THUMB_H, False)
+                        img = Gtk.Image.new_from_pixbuf(pb)
+                        img.set_margin_bottom(4)
+                        return img
+                    except Exception:
+                        pass
+            # placeholder
+            _ph_clr = _hex_to_rgb(t["hdr"])
+            da = Gtk.DrawingArea()
+            da.set_size_request(_THUMB_W, _THUMB_H)
+            def _draw_ph(widget, cr, _c=_ph_clr):
+                cr.set_source_rgb(*_c)
+                cr.rectangle(0, 0, _THUMB_W, _THUMB_H)
+                cr.fill()
+            da.connect("draw", _draw_ph)
+            return da
+
+        def _find_theme_wallpaper(theme_dir: str):
+            for ext in ("jpg", "png", "jpeg", "webp"):
+                p = os.path.join(theme_dir, f"wallpaper.{ext}")
+                if os.path.isfile(p):
+                    return p
+            return None
+
+        def _apply_theme(name, wp=None):
+            tc_py = os.path.join(self._cfg.get("theme_changer_dir", _USER_DATA_DIR), "vshypr-theme-manager.py")
+            cmd = ["python3", tc_py, name] + ([wp] if wp else [])
+            self._set_status(f"Applying {name}…")
+            def _run():
+                try:
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                    msg = f"Theme '{name}' applied" if r.returncode == 0 else f"Error: {r.stderr[:80]}"
+                except Exception as e:
+                    msg = f"Error: {e}"
+                GLib.idle_add(lambda: self._set_status(msg))
+                GLib.idle_add(_refresh_active)
+            threading.Thread(target=_run, daemon=True).start()
+
+        def _pick_wallpaper_and_apply(name):
+            dlg = Gtk.FileChooserDialog(
+                title=f"Wallpaper para {name}", parent=self,
+                action=Gtk.FileChooserAction.OPEN
+            )
+            dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            dlg.add_button("Apply", Gtk.ResponseType.OK)
+            ff = Gtk.FileFilter()
+            ff.set_name("Images")
+            for pat in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+                ff.add_pattern(pat)
+            dlg.add_filter(ff)
+            wp_dir = self._cfg.get("wallpapers_dir", _DEFAULT_WP_DIR)
+            if os.path.isdir(wp_dir):
+                dlg.set_current_folder(wp_dir)
+            ok  = dlg.run() == Gtk.ResponseType.OK
+            wp  = dlg.get_filename() if ok else None
+            dlg.destroy()
+            if wp:
+                _apply_theme(name, wp)
+
+        def _make_theme_card(name: str, display_name: str, is_cur: bool, colors: dict, theme_dir: str) -> Gtk.Widget:
+            card = _card_box(active=is_cur)
+            card.set_size_request(180, -1)
+
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            inner.set_margin_start(8); inner.set_margin_end(8)
+            inner.set_margin_top(8);   inner.set_margin_bottom(8)
+
+            # thumbnail
+            inner.pack_start(_make_thumb(theme_dir), False, False, 0)
+
+            # paleta swatches
+            inner.pack_start(_make_swatch_row(colors), False, False, 0)
+
+            name_lbl = Gtk.Label()
+            name_lbl.set_markup(
+                f'<span foreground="{t["acc"] if is_cur else t["txt"]}" '
+                f'weight="{"bold" if is_cur else "normal"}" size="11500">{display_name}</span>'
+            )
+            name_lbl.set_halign(Gtk.Align.CENTER)
+            name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            name_lbl.set_max_width_chars(18)
+            name_lbl.set_margin_top(2)
+            inner.pack_start(name_lbl, False, False, 0)
+
+            # botones
+            btn_row = Gtk.Box(spacing=4)
+            btn_row.set_halign(Gtk.Align.CENTER)
+            btn_row.set_margin_top(4)
+
+            apply_btn = Gtk.Button(label="Apply")
+            apply_btn.get_style_context().add_class("open-btn")
+            apply_btn.connect("clicked", lambda *_: _apply_theme(name))
+
+            wp_path = _find_theme_wallpaper(theme_dir)
+            is_dynamic = name.startswith("dynamic-")
+
+            btn_row.pack_start(apply_btn, False, False, 0)
+            if wp_path or is_dynamic:
+                wp_btn = Gtk.Button(label="+ WP")
+                wp_btn.get_style_context().add_class("save-btn")
+                if wp_path:
+                    wp_btn.connect("clicked", lambda *_, _n=name, _w=wp_path: _apply_theme(_n, _w))
+                else:
+                    wp_btn.connect("clicked", lambda *_, _n=name: _pick_wallpaper_and_apply(_n))
+                btn_row.pack_start(wp_btn, False, False, 0)
+
+            inner.pack_start(btn_row, False, False, 0)
+            card.pack_start(inner, False, False, 0)
+            return card
+
+        # ── Load and group themes ─────────────────────────────────────────────
+        dark_themes, light_themes, dyn_themes = [], [], []
+
+        try:
+            entries = sorted([
+                d for d in os.listdir(_TC_THEMES)
+                if os.path.isdir(os.path.join(_TC_THEMES, d))
+                and os.path.isfile(os.path.join(_TC_THEMES, d, "colors.json"))
+            ])
+        except Exception:
+            entries = []
+
+        for name in entries:
+            td = os.path.join(_TC_THEMES, name)
+            try:
+                with open(os.path.join(td, "colors.json")) as _f:
+                    meta = _json.load(_f)
+                _meta_sec = meta.get("meta", {})
+                variant      = _meta_sec.get("variant", "dark")
+                display_name = _meta_sec.get("display_name", name)
+                colors       = meta.get("colors", {})
+            except Exception:
+                variant, display_name, colors = "dark", name, {}
+            if name.startswith("dynamic-"):
+                dyn_themes.append((name, display_name, colors, td))
+            elif variant == "light":
+                light_themes.append((name, display_name, colors, td))
+            else:
+                dark_themes.append((name, display_name, colors, td))
+
+        def _add_group(label_text, group):
+            if not group:
+                return
+            outer.pack_start(_section(label_text), False, False, 0)
+            flow = Gtk.FlowBox()
+            flow.set_max_children_per_line(4)
+            flow.set_selection_mode(Gtk.SelectionMode.NONE)
+            flow.set_row_spacing(8)
+            flow.set_column_spacing(8)
+            flow.set_margin_top(8)
+            flow.set_homogeneous(True)
+            for name, display_name, colors, td in group:
+                card = _make_theme_card(name, display_name, name == cur_name, colors, td)
+                flow.add(card)
+            outer.pack_start(flow, False, False, 0)
+
+        _add_group("DARK",    dark_themes)
+        _add_group("LIGHT",   light_themes)
+        _add_group("DYNAMIC", dyn_themes)
+
+        return _scrolled(outer)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE:Wallpaper
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _page_wallpaper(self):
+        t = self._theme
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_start(24); outer.set_margin_end(24)
+        outer.set_margin_top(20);   outer.set_margin_bottom(20)
+
+        hdr_lbl = Gtk.Label()
+        hdr_lbl.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="16000">Wallpaper</span>'
+        )
+        hdr_lbl.set_halign(Gtk.Align.START)
+        outer.pack_start(hdr_lbl, False, False, 0)
+
+        sub = Gtk.Label()
+        sub.set_markup(
+            f'<span foreground="{t["dim"]}" size="12000">'
+            f'Select and apply a wallpaper with awww (fade transition)</span>'
+        )
+        sub.set_halign(Gtk.Align.START)
+        sub.set_margin_bottom(16)
+        outer.pack_start(sub, False, False, 0)
+
+        # ── Image path ────────────────────────────────────────────────────────
+        outer.pack_start(_section("WALLPAPER IMAGE"), False, False, 0)
+
+        try:
+            cur_wp = _json.loads(open(_TC_CURRENT).read()).get("wallpaper") or ""
+        except Exception:
+            cur_wp = ""
+
+        _selected = [cur_wp]
+
+        file_row  = Gtk.Box(spacing=8)
+        file_row.set_margin_top(6)
+        wp_entry  = Gtk.Entry()
+        wp_entry.set_text(cur_wp)
+        wp_entry.set_hexpand(True)
+        wp_entry.set_placeholder_text("Path to image...")
+
+        browse_btn = Gtk.Button(label=" Browse")
+        browse_btn.get_style_context().add_class("open-btn")
+
+        # ── Preview area ──────────────────────────────────────────────────────
+        _PW, _PH = 520, 292   # 16:9
+        _pixbuf  = [None]
+
+        preview_box = Gtk.Box()
+        preview_box.get_style_context().add_class("preview-box")
+        preview_box.set_margin_top(12)
+
+        preview_da = Gtk.DrawingArea()
+        preview_da.set_size_request(_PW, _PH)
+
+        def _load_preview(path):
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, _PW, _PH, True)
+                _pixbuf[0] = pb
+            except Exception:
+                _pixbuf[0] = None
+            preview_da.queue_draw()
+            return False   # para GLib.idle_add
+
+        _clr_hdr = _hex_to_rgb(t["hdr"])
+        _clr_brd = _hex_to_rgb(t["brd"])
+        _clr_mid = _hex_to_rgb(t["mid"])
+
+        def _draw(widget, cr):
+            w = widget.get_allocated_width()
+            h = widget.get_allocated_height()
+            cr.set_source_rgb(*_clr_hdr)
+            cr.rectangle(0, 0, w, h)
+            cr.fill()
+            if _pixbuf[0]:
+                pb  = _pixbuf[0]
+                ox  = (w - pb.get_width())  // 2
+                oy  = (h - pb.get_height()) // 2
+                Gdk.cairo_set_source_pixbuf(cr, pb, ox, oy)
+                cr.paint()
+            else:
+                cr.set_source_rgb(*_clr_brd)
+                cr.set_line_width(1)
+                cr.rectangle(0.5, 0.5, w - 1, h - 1)
+                cr.stroke()
+                cr.set_source_rgb(*_clr_mid)
+                cr.select_font_face(
+                    "monospace", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL
+                )
+                cr.set_font_size(13)
+                msg = "No image selected"
+                xb, yb, tw, th2, _, _ = cr.text_extents(msg)
+                cr.move_to((w - tw) / 2 - xb, (h + th2) / 2 - yb)
+                cr.show_text(msg)
+
+        preview_da.connect("draw", _draw)
+        preview_box.pack_start(preview_da, True, True, 0)
+        outer.pack_start(preview_box, False, False, 0)
+
+        def _on_entry_changed(entry):
+            path = entry.get_text().strip()
+            _selected[0] = path
+            if path and os.path.isfile(path):
+                _load_preview(path)
+            else:
+                _pixbuf[0] = None
+                preview_da.queue_draw()
+
+        wp_entry.connect("changed", _on_entry_changed)
+
+        def _browse(*_):
+            dlg = Gtk.FileChooserDialog(
+                title="Select wallpaper", parent=self,
+                action=Gtk.FileChooserAction.OPEN
+            )
+            dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            dlg.add_button("Select", Gtk.ResponseType.OK)
+
+            flt = Gtk.FileFilter()
+            flt.set_name("Images (JPG, PNG, WebP)")
+            for mime in ("image/jpeg", "image/png", "image/webp"):
+                flt.add_mime_type(mime)
+            for pat in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+                flt.add_pattern(pat)
+            dlg.add_filter(flt)
+
+            wp_dir = self._cfg.get("wallpapers_dir", _DEFAULT_WP_DIR)
+            if os.path.isdir(wp_dir):
+                dlg.set_current_folder(wp_dir)
+            elif cur_wp and os.path.isfile(cur_wp):
+                dlg.set_filename(cur_wp)
+
+            if dlg.run() == Gtk.ResponseType.OK:
+                wp_entry.set_text(dlg.get_filename())
+            dlg.destroy()
+
+        browse_btn.connect("clicked", _browse)
+        file_row.pack_start(wp_entry,   True,  True,  0)
+        file_row.pack_start(browse_btn, False, False, 0)
+        outer.pack_start(file_row, False, False, 0)
+
+        # Load initial preview
+        if cur_wp and os.path.isfile(cur_wp):
+            GLib.idle_add(lambda: _load_preview(cur_wp))
+
+        # ── Apply ─────────────────────────────────────────────────────────────
+        outer.pack_start(_section("APPLY"), False, False, 0)
+
+        awww_ok = bool(shutil.which("awww"))
+        if not awww_ok:
+            warn = Gtk.Label()
+            warn.set_markup(
+                f'<span foreground="{t["yellow"]}" size="11000">'
+                f'⚠  awww not found — install it from the Setup tab</span>'
+            )
+            warn.set_halign(Gtk.Align.START)
+            warn.set_margin_top(4)
+            outer.pack_start(warn, False, False, 0)
+
+        action_row = Gtk.Box(spacing=10)
+        action_row.set_margin_top(10)
+        action_row.pack_start(Gtk.Box(), True, True, 0)
+
+        apply_btn = Gtk.Button()
+        apply_btn.get_style_context().add_class("save-btn")
+        apply_btn.set_sensitive(awww_ok)
+        apply_lbl = Gtk.Label()
+        apply_lbl.set_markup(
+            '<span font_desc="JetBrainsMono Nerd Font 13">  Apply wallpaper</span>'
+        )
+        apply_btn.add(apply_lbl)
+
+        def _apply_wp(*_):
+            path = _selected[0].strip()
+            if not path or not os.path.isfile(path):
+                self._set_status("Select a valid image first")
+                return
+            try:
+                subprocess.Popen(
+                    ["awww-daemon", "--daemon"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+            except Exception:
+                pass
+            try:
+                subprocess.Popen(
+                    ["awww", "img", path,
+                     "--transition-type", "fade"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                self._set_status(f"Wallpaper applied: {os.path.basename(path)}")
+            except Exception as e:
+                self._set_status(f"Error applying wallpaper: {e}")
+
+        apply_btn.connect("clicked", _apply_wp)
+        action_row.pack_start(apply_btn, False, False, 0)
+        outer.pack_start(action_row, False, False, 0)
+
+        return _scrolled(outer)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE: Assets
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _page_assets(self):
+        t      = self._theme
+        tc_dir = self._cfg.get("theme_changer_dir", _USER_DATA_DIR)
+
+        GROUPS = [
+            {
+                "title": "ROFI — RASI FILES",
+                "hint":  "Theme config files for Rofi — target: ~/.config/rofi/",
+                "items": [
+                    ("config.rasi",            "assets/rofi/config.rasi",            "~/.config/rofi/config.rasi"),
+                    ("spotlight.rasi",         "assets/rofi/spotlight.rasi",         "~/.config/rofi/spotlight.rasi"),
+                    ("launchpad.rasi",         "assets/rofi/launchpad.rasi",         "~/.config/rofi/launchpad.rasi"),
+                    ("config-keybinds.rasi",   "assets/rofi/config-keybinds.rasi",   "~/.config/rofi/config-keybinds.rasi"),
+                    ("wallpaper-grid.rasi",    "assets/rofi/wallpaper-grid.rasi",    "~/.config/rofi/wallpaper-grid.rasi"),
+                    ("theme-picker.rasi",      "assets/rofi/theme-picker.rasi",      "~/.config/rofi/theme-picker.rasi"),
+                    ("wallpaper-picker.rasi",  "assets/rofi/wallpaper-picker.rasi",  "~/.config/rofi/wallpaper-picker.rasi"),
+                ],
+            },
+            {
+                "title": "WLOGOUT",
+                "hint":  "Logout menu layout and SVG icons — target: ~/.config/wlogout/",
+                "items": [
+                    ("layout",        "assets/wlogout/layout",   "~/.config/wlogout/layout"),
+                    ("icons/ (SVGs)", "assets/wlogout/icons/",   "~/.config/wlogout/icons/"),
+                ],
+            },
+            {
+                "title": "HYPRLAND SCRIPTS",
+                "hint":  "Wallpaper daemon script (awww) — target: ~/.config/hypr/",
+                "items": [
+                    ("wallpaper.sh",  "assets/hypr/wallpaper.sh", "~/.config/hypr/wallpaper.sh"),
+                ],
+            },
+        ]
+
+        # ── helpers ───────────────────────────────────────────────────────────
+
+        def _src_abs(src_rel):
+            return os.path.join(tc_dir, src_rel)
+
+        def _src_available(src_rel):
+            s = _src_abs(src_rel)
+            return os.path.isdir(s) if src_rel.endswith("/") else os.path.isfile(s)
+
+        def _dst_installed(src_rel, dst):
+            dst_abs = os.path.expanduser(dst)
+            if src_rel.endswith("/"):
+                if not os.path.isdir(dst_abs):
+                    return False
+                src_files = set(os.listdir(_src_abs(src_rel)))
+                dst_files = set(os.listdir(dst_abs))
+                return src_files.issubset(dst_files)
+            return os.path.isfile(dst_abs)
+
+        def _install(name, src_rel, dst, row_card, install_btn, status_lbl):
+            src = _src_abs(src_rel)
+            dst_abs = os.path.expanduser(dst)
+            try:
+                if src_rel.endswith("/"):
+                    os.makedirs(dst_abs, exist_ok=True)
+                    for f in os.listdir(src):
+                        shutil.copy2(os.path.join(src, f), os.path.join(dst_abs, f))
+                else:
+                    os.makedirs(os.path.dirname(dst_abs), exist_ok=True)
+                    shutil.copy2(src, dst_abs)
+                # Update card to installed state
+                row_card.get_style_context().remove_class("plugin-card")
+                row_card.get_style_context().add_class("plugin-card-active")
+                status_lbl.set_markup(f'<span foreground="{t["green"]}">●</span>')
+                install_btn.set_label("Reinstall")
+                self._set_status(f"Installed: {name}")
+            except Exception as e:
+                self._set_status(f"Error installing {name}: {e}")
+
+        # ── layout ────────────────────────────────────────────────────────────
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_start(24); outer.set_margin_end(24)
+        outer.set_margin_top(20);   outer.set_margin_bottom(20)
+
+        hdr_lbl = Gtk.Label()
+        hdr_lbl.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="16000">Assets</span>'
+        )
+        hdr_lbl.set_halign(Gtk.Align.START)
+        outer.pack_start(hdr_lbl, False, False, 0)
+
+        sub = Gtk.Label()
+        sub.set_markup(
+            f'<span foreground="{t["dim"]}" size="12000">'
+            f'Install bundled config files to their target locations</span>'
+        )
+        sub.set_halign(Gtk.Align.START)
+        sub.set_margin_bottom(12)
+        outer.pack_start(sub, False, False, 0)
+
+        _all_btns = []   # (install_btn, src_rel, dst, name, row_card, status_lbl)
+
+        for group in GROUPS:
+            outer.pack_start(_section(group["title"]), False, False, 0)
+            outer.pack_start(_hint(group["hint"]), False, False, 0)
+
+            for name, src_rel, dst in group["items"]:
+                available  = _src_available(src_rel)
+                installed  = _dst_installed(src_rel, dst) if available else False
+
+                card = _card_box(active=installed)
+                card.set_margin_top(6)
+                card.set_margin_bottom(2)
+
+                row = Gtk.Box(spacing=10)
+                row.set_margin_start(12); row.set_margin_end(12)
+                row.set_margin_top(8);    row.set_margin_bottom(8)
+
+                # status dot
+                status_lbl = Gtk.Label()
+                if not available:
+                    status_lbl.set_markup(f'<span foreground="{t["mid"]}">○</span>')
+                elif installed:
+                    status_lbl.set_markup(f'<span foreground="{t["green"]}">●</span>')
+                else:
+                    status_lbl.set_markup(f'<span foreground="{t["yellow"]}">●</span>')
+                row.pack_start(status_lbl, False, False, 0)
+
+                # info
+                info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                n_lbl = Gtk.Label()
+                n_lbl.set_markup(
+                    f'<span foreground="{t["txt"]}" weight="bold" size="13000">{name}</span>'
+                )
+                n_lbl.set_halign(Gtk.Align.START)
+                d_lbl = Gtk.Label()
+                d_lbl.set_markup(
+                    f'<span foreground="{t["mid"]}" size="10500">{dst}</span>'
+                )
+                d_lbl.set_halign(Gtk.Align.START)
+                info.pack_start(n_lbl, False, False, 0)
+                info.pack_start(d_lbl, False, False, 0)
+                row.pack_start(info, True, True, 0)
+
+                # badge / button
+                if not available:
+                    badge = Gtk.Label()
+                    badge.set_markup(
+                        f'<span foreground="{t["mid"]}" size="10000" font_style="italic">not bundled</span>'
+                    )
+                    row.pack_start(badge, False, False, 0)
+                else:
+                    btn_label = "Reinstall" if installed else "Install"
+                    install_btn = Gtk.Button(label=btn_label)
+                    install_btn.get_style_context().add_class(
+                        "open-btn" if installed else "save-btn"
+                    )
+                    _all_btns.append((install_btn, src_rel, dst, name, card, status_lbl))
+                    row.pack_start(install_btn, False, False, 0)
+
+                card.pack_start(row, False, False, 0)
+                outer.pack_start(card, False, False, 0)
+
+        # Wire install callbacks once all refs are collected
+        for _btn, _sr, _d, _nm, _c, _sl in _all_btns:
+            _btn.connect(
+                "clicked",
+                lambda *_, b=_btn, s=_sr, d=_d, n=_nm, c=_c, sl=_sl:
+                    _install(n, s, d, c, b, sl)
+            )
+
+        # ── Install all missing ───────────────────────────────────────────────
+        action_row = Gtk.Box(spacing=10)
+        action_row.set_margin_top(20)
+        action_row.pack_start(Gtk.Box(), True, True, 0)
+
+        install_all = Gtk.Button()
+        install_all.get_style_context().add_class("save-btn")
+        lbl_all = Gtk.Label()
+        lbl_all.set_markup(
+            f'<span font_desc="JetBrainsMono Nerd Font 13">  Install all missing</span>'
+        )
+        install_all.add(lbl_all)
+
+        def _install_all(*_):
+            count = 0
+            for install_btn, src_rel, dst, name, card, status_lbl in _all_btns:
+                if _src_available(src_rel) and not _dst_installed(src_rel, dst):
+                    _install(name, src_rel, dst, card, install_btn, status_lbl)
+                    count += 1
+            if count == 0:
+                self._set_status("All assets already installed")
+            else:
+                self._set_status(f"Installed {count} asset(s)")
+
+        install_all.connect("clicked", _install_all)
+        action_row.pack_start(install_all, False, False, 0)
+        outer.pack_start(action_row, False, False, 0)
+
+        return _scrolled(outer)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE:vsHub
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _page_hub(self, auto_fetch=True):
+        t    = self._theme
+        _aur = next((h for h in ("yay", "paru") if shutil.which(h)), None)
+
+        _MANIFEST_URL   = "https://raw.githubusercontent.com/victorsosaMx/vsHub/main/tools.json"
+        _CACHE_PATH     = os.path.expanduser("~/.cache/vshub/tools.json")
+        _FALLBACK_TOOLS = [
+            {
+                "name": "vsHyprland-Manager",
+                "desc": "Graphical config editor for Hyprland",
+                "icon": "󱙌", "exe": "vshyprland", "aur": "vshyprland-manager",
+                "github": "https://github.com/victorsosaMx/vsHyprland-Manager",
+            },
+            {
+                "name": "vsWaybar Studio",
+                "desc": "Graphical config editor for Waybar",
+                "icon": "󰣇", "exe": "vswaybar-studio", "aur": "vswaybar-studio",
+                "github": "https://github.com/victorsosaMx/vsWaybar-Studio",
+            },
+            {
+                "name": "vsFetch",
+                "desc": 'Graphical system info viewer — like "About This Computer" for your Linux desktop',
+                "icon": "󰟀", "exe": "vsfetch", "aur": "vsfetch",
+                "github": "https://github.com/victorsosaMx/vsFetch",
+            },
+            {
+                "name": "vsFetch Settings",
+                "desc": "Visual config editor for vsFetch — live preview, themes, no JSON editing",
+                "icon": "󰒓", "exe": "vsfetch-settings", "aur": "vsfetch-settings",
+                "github": "https://github.com/victorsosaMx/vsFetch-Settings",
+            },
+            {
+                "name": "vsHypr Theme Manager",
+                "desc": "Theming system for Arch Linux + Hyprland — you are here",
+                "icon": "󰔯", "exe": "vshypr-theme-manager", "aur": "vshypr-theme-manager",
+                "github": "https://github.com/victorsosaMx/vsHypr-Theme-Manager",
+                "self": True,
+            },
+        ]
+
+        def _load_tools():
+            try:
+                with open(_CACHE_PATH) as f:
+                    return _json.load(f)
+            except Exception:
+                return _FALLBACK_TOOLS
+
+        def _fetch_manifest():
+            try:
+                req = urllib.request.Request(
+                    _MANIFEST_URL,
+                    headers={"User-Agent": "vshypr-theme-manager/" + __version__}
+                )
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    data = r.read().decode()
+                remote = _json.loads(data)
+                os.makedirs(os.path.dirname(_CACHE_PATH), exist_ok=True)
+                with open(_CACHE_PATH, "w") as f:
+                    _json.dump(remote, f, indent=2)
+                GLib.idle_add(lambda: self._reload_hub_tab(switch_to_hub=False))
+                GLib.idle_add(lambda: self._set_status(f"vsHub updated — {len(remote)} tools"))
+            except Exception as e:
+                GLib.idle_add(lambda: self._set_status(f"vsHub: error fetching list — {e}"))
+
+        def _build_cards(tools, container):
+            for tool in tools:
+                is_self      = tool.get("self", False)
+                is_installed = is_self or bool(shutil.which(tool.get("exe", "")))
+
+                card = _card_box(active=(is_self or is_installed))
+                card.set_margin_bottom(10)
+
+                row = Gtk.Box(spacing=12)
+                row.set_margin_start(14); row.set_margin_end(14)
+                row.set_margin_top(10);   row.set_margin_bottom(10)
+
+                icon_lbl = Gtk.Label()
+                icon_lbl.set_markup(
+                    f'<span font_desc="JetBrainsMono Nerd Font 20" '
+                    f'foreground="{t["acc"] if (is_self or is_installed) else t["dim"]}">'
+                    f'{tool.get("icon", "")}</span>'
+                )
+                row.pack_start(icon_lbl, False, False, 0)
+
+                info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                n = Gtk.Label()
+                n.set_markup(
+                    f'<span foreground="{t["txt"]}" weight="bold" size="13000">'
+                    f'{tool.get("name", "")}</span>'
+                )
+                n.set_halign(Gtk.Align.START)
+                d = Gtk.Label()
+                d.set_markup(
+                    f'<span foreground="{t["dim"]}" size="11000">{tool.get("desc", "")}</span>'
+                )
+                d.set_halign(Gtk.Align.START)
+                info.pack_start(n, False, False, 0)
+                info.pack_start(d, False, False, 0)
+                row.pack_start(info, True, True, 0)
+
+                if is_self:
+                    dot = Gtk.Label()
+                    dot.set_markup(
+                        f'<span foreground="{t["acc"]}">● </span>'
+                        f'<span foreground="{t["dim"]}" size="11000">you are here</span>'
+                    )
+                    row.pack_start(dot, False, False, 0)
+                elif is_installed:
+                    dot = Gtk.Label()
+                    dot.set_markup(f'<span foreground="{t["acc"]}">●</span>')
+                    row.pack_start(dot, False, False, 4)
+                    launch = Gtk.Button(label="Launch →")
+                    launch.get_style_context().add_class("save-btn")
+                    launch.connect("clicked",
+                        lambda *_, exe=tool.get("exe", ""): subprocess.Popen(
+                            [exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                        ))
+                    row.pack_start(launch, False, False, 0)
+                else:
+                    dot = Gtk.Label()
+                    dot.set_markup(f'<span foreground="{t["mid"]}">○</span>')
+                    row.pack_start(dot, False, False, 4)
+                    gh = Gtk.Button(label="GitHub")
+                    gh.get_style_context().add_class("open-btn")
+                    gh.connect("clicked",
+                        lambda *_, url=tool.get("github", ""): _open_url(url))
+                    row.pack_start(gh, False, False, 0)
+                    inst = Gtk.Button(label=f"Install ({_aur or 'AUR'})")
+                    inst.get_style_context().add_class("open-btn")
+                    inst.set_sensitive(_aur is not None)
+                    inst.set_tooltip_text(
+                        f"{_aur} -S {tool.get('aur', '')}" if _aur
+                        else "yay or paru not found"
+                    )
+                    inst.connect("clicked",
+                        lambda *_, pkg=tool.get("aur", ""): self._run_in_terminal(
+                            [f"{_aur} -S {pkg}"], on_done=self._reload_hub_tab
+                        ))
+                    row.pack_start(inst, False, False, 0)
+
+                card.pack_start(row, False, False, 0)
+                container.pack_start(card, False, False, 0)
+
+        # ── Layout ────────────────────────────────────────────────────────────
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_start(24); outer.set_margin_end(24)
+        outer.set_margin_top(20);   outer.set_margin_bottom(20)
+
+        hdr_row = Gtk.Box(spacing=12)
+        hdr_row.set_margin_bottom(4)
+        hdr_lbl = Gtk.Label()
+        hdr_lbl.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="16000">vsHub</span>'
+        )
+        hdr_lbl.set_halign(Gtk.Align.START)
+        hdr_row.pack_start(hdr_lbl, True, True, 0)
+
+        refresh = Gtk.Button(label="⟳")
+        refresh.get_style_context().add_class("open-btn")
+        refresh.set_tooltip_text("Refresh list from GitHub")
+        def _force_refresh(*_):
+            try:
+                os.remove(_CACHE_PATH)
+            except Exception:
+                pass
+            self._set_status("vsHub: fetching list from GitHub…")
+            threading.Thread(target=_fetch_manifest, daemon=True).start()
+        refresh.connect("clicked", _force_refresh)
+        hdr_row.pack_start(refresh, False, False, 0)
+        outer.pack_start(hdr_row, False, False, 0)
+
+        sub = Gtk.Label()
+        sub.set_markup(
+            f'<span foreground="{t["dim"]}" size="12000">'
+            f'The vs ecosystem — all tools in one place</span>'
+        )
+        sub.set_halign(Gtk.Align.START)
+        sub.set_margin_bottom(20)
+        outer.pack_start(sub, False, False, 0)
+
+        src = Gtk.Label()
+        try:
+            mtime = datetime.datetime.fromtimestamp(os.path.getmtime(_CACHE_PATH))
+            src.set_markup(
+                f'<span foreground="{t["dim"]}" size="10000">'
+                f'Actualizado {mtime.strftime("%Y-%m-%d %H:%M")}</span>'
+            )
+        except OSError:
+            src.set_markup(
+                f'<span foreground="{t["dim"]}" size="10000">'
+                f'Built-in list · fetching updates…</span>'
+            )
+        src.set_halign(Gtk.Align.START)
+        src.set_margin_bottom(12)
+        outer.pack_start(src, False, False, 0)
+
+        _build_cards(_load_tools(), outer)
+        if auto_fetch:
+            threading.Thread(target=_fetch_manifest, daemon=True).start()
+
+        return _scrolled(outer)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE:Commands
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _page_commands(self):
+        t = self._theme
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_start(24); outer.set_margin_end(24)
+        outer.set_margin_top(20);   outer.set_margin_bottom(20)
+
+        hdr_lbl = Gtk.Label()
+        hdr_lbl.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="16000">Commands</span>'
+        )
+        hdr_lbl.set_halign(Gtk.Align.START)
+        outer.pack_start(hdr_lbl, False, False, 0)
+
+        sub = Gtk.Label()
+        sub.set_markup(
+            f'<span foreground="{t["dim"]}" size="12000">'
+            f'Quick reference · integrations · restore configuration</span>'
+        )
+        sub.set_halign(Gtk.Align.START)
+        sub.set_margin_bottom(4)
+        outer.pack_start(sub, False, False, 0)
+
+        tc_dir   = self._cfg.get("theme_changer_dir", _USER_DATA_DIR)
+        gui_path = os.path.join(tc_dir, "vshypr-theme-manager")
+        py_path  = os.path.join(tc_dir, "vshypr-theme-manager.py")
+        rofi_path = os.path.join(tc_dir, "rofi-picker.sh")
+
+        def _copy_btn(text):
+            btn = Gtk.Button(label="󰆏 Copiar")
+            btn.get_style_context().add_class("open-btn")
+            btn.set_tooltip_text(text)
+            def _do_copy(*_):
+                cb = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+                cb.set_text(text, -1)
+                self._set_status(f"Copied: {text[:60]}{'…' if len(text)>60 else ''}")
+            btn.connect("clicked", _do_copy)
+            return btn
+
+        def _cmd_row(label, cmd, hint=""):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            box.set_margin_top(8)
+            if hint:
+                h = _hint(hint)
+                box.pack_start(h, False, False, 0)
+            row = Gtk.Box(spacing=8)
+            code = Gtk.Label()
+            code.set_markup(
+                f'<span font_desc="JetBrains Mono 11" foreground="{t["acc"]}">{label}  </span>'
+                f'<span font_desc="JetBrains Mono 11" foreground="{t["txt"]}">{cmd}</span>'
+            )
+            code.set_halign(Gtk.Align.START)
+            code.set_selectable(True)
+            row.pack_start(code,         True,  True,  0)
+            row.pack_start(_copy_btn(cmd), False, False, 0)
+            box.pack_start(row, False, False, 0)
+            return box
+
+        # ── Hyprland integration ──────────────────────────────────────────────
+        outer.pack_start(_section("HYPRLAND INTEGRATION"), False, False, 0)
+        outer.pack_start(_hint("Add these lines to your hyprland.conf (or your keybinds file)"), False, False, 0)
+
+        hypr_cmds = [
+            ("super+F1  →  rofi picker",
+             f"bind = $mainMod, F1, exec, bash {rofi_path}",
+             "Opens the visual theme picker with rofi"),
+            ("super+shift+F1  →  open GUI",
+             f"bind = $mainMod SHIFT, F1, exec, {gui_path}",
+             "Opens vsHypr Theme Manager"),
+            ("super+F2  →  dynamic dark theme",
+             f"bind = $mainMod, F2, exec, python3 {py_path} dynamic-dark",
+             "Applies dynamic dark theme with the current wallpaper"),
+            ("super+F3  →  dynamic light theme",
+             f"bind = $mainMod, F3, exec, python3 {py_path} dynamic-light",
+             "Applies dynamic light theme with the current wallpaper"),
+        ]
+        for label, cmd, hint in hypr_cmds:
+            outer.pack_start(_cmd_row(label, cmd, hint), False, False, 0)
+
+        # ── Terminal commands ─────────────────────────────────────────────────
+        outer.pack_start(_section("TERMINAL"), False, False, 0)
+
+        term_cmds = [
+            ("Open visual picker",
+             f"bash {rofi_path}",
+             ""),
+            ("Open GUI",
+             f"{gui_path}",
+             ""),
+            ("Apply theme",
+             f"python3 {py_path} <theme-name>",
+             "Example: python3 … catppuccin-mocha"),
+            ("Apply theme + wallpaper",
+             f"python3 {py_path} <theme-name> /path/to/wallpaper.jpg",
+             ""),
+            ("Dynamic dark theme",
+             f"python3 {py_path} dynamic-dark /path/to/wallpaper.jpg",
+             "Generates palette with matugen from the wallpaper"),
+            ("Dynamic light theme",
+             f"python3 {py_path} dynamic-light /path/to/wallpaper.jpg",
+             ""),
+            ("List available themes",
+             f"python3 {py_path} --list",
+             ""),
+        ]
+        for label, cmd, hint in term_cmds:
+            outer.pack_start(_cmd_row(label, cmd, hint), False, False, 0)
+
+        # ── Autostart ─────────────────────────────────────────────────────────
+        outer.pack_start(_section("AUTOSTART (HYPRLAND)"), False, False, 0)
+        outer.pack_start(_hint("Applies the last saved theme on session start"), False, False, 0)
+
+        _current_json = os.path.join(tc_dir, "current-theme.json")
+        cur_theme_cmd = "exec-once = bash -c 'sleep 2 && python3 " + py_path + " $(jq -r .theme " + _current_json + ")'"
+        outer.pack_start(_cmd_row("exec-once", cur_theme_cmd, ""), False, False, 0)
+
+        # ── Restore original configuration ───────────────────────────────────
+        outer.pack_start(_section("RESTORE ORIGINAL CONFIGURATION"), False, False, 0)
+
+        backup_original = os.path.join(tc_dir, "backups", "original")
+        has_backup = os.path.isdir(backup_original) and bool(os.listdir(backup_original))
+
+        if has_backup:
+            try:
+                files = []
+                for root, _, fnames in os.walk(backup_original):
+                    for f in fnames:
+                        rel = os.path.relpath(os.path.join(root, f), backup_original)
+                        files.append(rel)
+                count = len(files)
+            except Exception:
+                count = 0
+
+            info_lbl = Gtk.Label()
+            info_lbl.set_markup(
+                f'<span foreground="{t["dim"]}" size="12000">'
+                f'Found <b>{count}</b> original files in '
+                f'<tt>backups/original/</tt> — captured before the first apply.</span>'
+            )
+            info_lbl.set_halign(Gtk.Align.START)
+            info_lbl.set_line_wrap(True)
+            info_lbl.set_margin_top(6)
+            outer.pack_start(info_lbl, False, False, 0)
+
+            restore_row = Gtk.Box(spacing=8)
+            restore_row.set_margin_top(10)
+
+            open_btn = Gtk.Button(label="󰉋 Open backups folder")
+            open_btn.get_style_context().add_class("open-btn")
+            open_btn.connect("clicked", lambda *_: _open_url(f"file://{backup_original}"))
+
+            restore_btn = Gtk.Button(label="󰜄 Restore original config")
+            restore_btn.get_style_context().add_class("save-btn")
+
+            restore_warn = Gtk.Label()
+            restore_warn.set_markup(
+                f'<span foreground="{t["dim"]}" size="11000" font_style="italic">'
+                f'Will overwrite current files in ~/.config/</span>'
+            )
+            restore_warn.set_halign(Gtk.Align.START)
+            restore_warn.set_margin_top(4)
+
+            def _do_restore(*_):
+                cfg_dir = os.path.expanduser("~/.config")
+                restored, failed = [], []
+                for root, _, fnames in os.walk(backup_original):
+                    for fname in fnames:
+                        src = os.path.join(root, fname)
+                        rel = os.path.relpath(src, backup_original)
+                        dst = os.path.join(cfg_dir, rel)
+                        try:
+                            os.makedirs(os.path.dirname(dst), exist_ok=True)
+                            shutil.copy2(src, dst)
+                            restored.append(rel)
+                        except Exception as e:
+                            failed.append(f"{rel}: {e}")
+                if failed:
+                    self._set_status(f"Restored {len(restored)}, errors: {len(failed)}")
+                else:
+                    self._set_status(f"✓ {len(restored)} files restored from backups/original/")
+
+            restore_btn.connect("clicked", _do_restore)
+            restore_row.pack_start(open_btn,    False, False, 0)
+            restore_row.pack_start(restore_btn, False, False, 0)
+            outer.pack_start(restore_row,  False, False, 0)
+            outer.pack_start(restore_warn, False, False, 0)
+        else:
+            no_backup = Gtk.Label()
+            no_backup.set_markup(
+                f'<span foreground="{t["dim"]}" size="12000">'
+                f'<tt>backups/original/</tt> not found — it is created automatically '
+                f'on the first theme apply.</span>'
+            )
+            no_backup.set_halign(Gtk.Align.START)
+            no_backup.set_margin_top(6)
+            outer.pack_start(no_backup, False, False, 0)
+
+        return _scrolled(outer)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE:About
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _page_about(self):
+        t = self._theme
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_halign(Gtk.Align.CENTER)
+        outer.set_valign(Gtk.Align.CENTER)
+        outer.set_border_width(40)
+
+        # ── Logo + name ───────────────────────────────────────────────────────
+        try:
+            pix = GdkPixbuf.Pixbuf.new_from_file_at_size(_APP_LOGO, 96, 96)
+            logo = Gtk.Image.new_from_pixbuf(pix)
+        except Exception:
+            logo = Gtk.Label()
+            logo.set_markup(f'<span font_desc="JetBrainsMono Nerd Font 56" foreground="{t["acc"]}">󰔯</span>')
+        logo.set_margin_bottom(12)
+        outer.pack_start(logo, False, False, 0)
+
+        app_lbl = Gtk.Label()
+        app_lbl.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="20000">{_APP_NAME}</span>'
+        )
+        outer.pack_start(app_lbl, False, False, 0)
+
+        ver_lbl = Gtk.Label()
+        ver_lbl.set_markup(
+            f'<span foreground="{t["dim"]}" size="13000">Version {__version__}</span>'
+        )
+        ver_lbl.set_margin_top(4)
+        outer.pack_start(ver_lbl, False, False, 0)
+
+        desc_lbl = Gtk.Label()
+        desc_lbl.set_markup(
+            f'<span foreground="{t["dim"]}" size="13000">'
+            f'Theming system for Arch Linux + Hyprland</span>'
+        )
+        desc_lbl.set_margin_top(2)
+        outer.pack_start(desc_lbl, False, False, 0)
+
+        lic_lbl = Gtk.Label()
+        lic_lbl.set_markup(f'<span foreground="{t["acc"]}" size="11000">MIT License</span>')
+        lic_lbl.set_margin_top(6)
+        outer.pack_start(lic_lbl, False, False, 0)
+
+        sep1 = Gtk.Separator()
+        sep1.set_margin_top(24); sep1.set_margin_bottom(20)
+        outer.pack_start(sep1, False, False, 0)
+
+        # ── Author ────────────────────────────────────────────────────────────
+        author_box = Gtk.Box(spacing=14)
+        author_box.set_halign(Gtk.Align.CENTER)
+
+        user_img = Gtk.Image.new_from_icon_name("system-users", Gtk.IconSize.INVALID)
+        user_img.set_pixel_size(36)
+        author_box.pack_start(user_img, False, False, 0)
+
+        author_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        author_name = Gtk.Label()
+        author_name.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="14000">Víctor Sosa</span>'
+        )
+        author_name.set_halign(Gtk.Align.START)
+        author_role = Gtk.Label()
+        author_role.set_markup(
+            f'<span foreground="{t["dim"]}" size="12000">Developer  ·  victorsosa.com</span>'
+        )
+        author_role.set_halign(Gtk.Align.START)
+        author_vbox.pack_start(author_name, False, False, 0)
+        author_vbox.pack_start(author_role, False, False, 0)
+        author_box.pack_start(author_vbox, False, False, 0)
+        outer.pack_start(author_box, False, False, 0)
+
+        sep2 = Gtk.Separator()
+        sep2.set_margin_top(20); sep2.set_margin_bottom(20)
+        outer.pack_start(sep2, False, False, 0)
+
+        # ── Links ─────────────────────────────────────────────────────────────
+        btn_row = Gtk.Box(spacing=12)
+        btn_row.set_halign(Gtk.Align.CENTER)
+
+        def _link_btn(icon, label, url):
+            btn = Gtk.Button()
+            box = Gtk.Box(spacing=6)
+            box.pack_start(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU), False, False, 0)
+            box.pack_start(Gtk.Label(label=label), False, False, 0)
+            btn.add(box)
+            btn.get_style_context().add_class("open-btn")
+            btn.connect("clicked", lambda *_: _open_url(url))
+            return btn
+
+        btn_row.pack_start(_link_btn("emblem-shared",        "vsHypr Theme Manager", "https://github.com/victorsosaMx/vsHypr-Theme-Manager"), False, False, 0)
+        btn_row.pack_start(_link_btn("applications-internet", "victorsosa.com",       "https://victorsosa.com/"),  False, False, 0)
+        outer.pack_start(btn_row, False, False, 0)
+
+        sep3 = Gtk.Separator()
+        sep3.set_margin_top(24); sep3.set_margin_bottom(20)
+        outer.pack_start(sep3, False, False, 0)
+
+        # ── Safety / backups ──────────────────────────────────────────────────
+        shield_lbl = Gtk.Label()
+        shield_lbl.set_markup(
+            f'<span font_desc="JetBrainsMono Nerd Font 28" foreground="{t["acc"]}">󰒃</span>'
+        )
+        shield_lbl.set_margin_bottom(8)
+        outer.pack_start(shield_lbl, False, False, 0)
+
+        safety_lbl = Gtk.Label()
+        safety_lbl.set_markup(
+            f'<span foreground="{t["txt"]}" weight="bold" size="13000">'
+            f'Your configuration is always safe</span>'
+        )
+        outer.pack_start(safety_lbl, False, False, 0)
+
+        safety_desc = Gtk.Label()
+        safety_desc.set_markup(
+            f'<span foreground="{t["dim"]}" size="12000">'
+            f'Before the first apply a copy of each file is saved in\n'
+            f'<tt>backups/original/</tt> — that backup is never overwritten.\n'
+            f'A timestamped snapshot is also created before every change.</span>'
+        )
+        safety_desc.set_halign(Gtk.Align.CENTER)
+        safety_desc.set_justify(Gtk.Justification.CENTER)
+        safety_desc.set_margin_top(8)
+        outer.pack_start(safety_desc, False, False, 0)
+
+        # ── Backups folder button ─────────────────────────────────────────────
+        tc_dir      = self._cfg.get("theme_changer_dir", _USER_DATA_DIR)
+        backup_dir  = os.path.join(tc_dir, "backups")
+        if os.path.isdir(backup_dir):
+            folder_row = Gtk.Box()
+            folder_row.set_halign(Gtk.Align.CENTER)
+            folder_row.set_margin_top(14)
+            folder_row.pack_start(
+                _link_btn("folder-open", "Open backups folder", f"file://{backup_dir}"),
+                False, False, 0
+            )
+            outer.pack_start(folder_row, False, False, 0)
+
+        # Wrap in scrolled so the viewport applies background CSS
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        wrap.set_valign(Gtk.Align.CENTER)
+        wrap.pack_start(outer, True, True, 0)
+        return _scrolled(wrap)
+
+
+# ── entry point ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    app = ThemeChangerApp()
+    Gtk.main()

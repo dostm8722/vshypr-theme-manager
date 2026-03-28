@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=vsHypr Theme Manager
+Comment=Theming system for Arch Linux + Hyprland
+Exec=vshypr-theme-manager
+Icon=vshypr-theme-manager
+Type=Application
+Categories=Settings;DesktopSettings;GTK;
+Keywords=theme;colors;hyprland;wayland;
+StartupNotify=true
+StartupWMClass=vshypr-theme-manager
