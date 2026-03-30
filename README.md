@@ -10,6 +10,15 @@
 </p>
 
 <p align="center">
+  <a href="https://aur.archlinux.org/packages/vshypr-theme-manager">
+    <img src="https://img.shields.io/aur/version/vshypr-theme-manager?color=1793d1&label=AUR&logo=archlinux&logoColor=white" alt="AUR version"/>
+  </a>
+  <a href="https://aur.archlinux.org/packages/vshypr-theme-manager">
+    <img src="https://img.shields.io/aur/last-modified/vshypr-theme-manager?color=1793d1&label=updated&logo=archlinux&logoColor=white" alt="AUR last modified"/>
+  </a>
+</p>
+
+<p align="center">
   <img src="screenshots/3.png" alt="Desktop with theme applied" width="780"/>
 </p>
 
